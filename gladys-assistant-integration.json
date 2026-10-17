@@ -1,177 +1,1562 @@
 {
   "manifest_version": 1,
   "type": "device",
-  "name": "Demo Devices Template",
+  "name": "Risco",
   "description": {
-    "en": "Starter template showing sensors, a switch, a dimmable light and a smart plug.",
-    "fr": "Template de démarrage : capteurs, interrupteur, lampe variable et prise connectée."
+    "en": "Risco LightSYS, Agility and WiComm alarms, locally over your network.",
+    "fr": "Alarmes Risco LightSYS, Agility et WiComm, en local sur votre réseau."
   },
-  "version": "1.0.0",
-  "docker_image": "ghcr.io/gladysassistant/integration-template-js:1.0.0",
+  "version": "0.1.0",
+  "docker_image": "ghcr.io/lm1lc3n7/gladys-risco:0.1.0",
   "gladys_version": ">=5.1.0",
-  "cover_image": "https://raw.githubusercontent.com/GladysAssistant/integration-template-js/master/cover.png",
-  "categories": ["lighting", "security", "environment"],
-  "transports": ["local", "cloud"],
+  "cover_image": "https://raw.githubusercontent.com/LM1LC3N7/gladys-risco/main/cover.png",
+  "categories": ["security"],
+  "transports": ["local"],
   "config_schema": [
     {
       "key": "intro",
       "type": "section",
-      "label": { "en": "Getting started", "fr": "Pour commencer" },
+      "label": {
+        "en": "Your Risco panel",
+        "fr": "Votre centrale Risco"
+      },
       "description": {
-        "en": "The demo weather station reads real data from the free Open-Meteo API: pick the coordinates to observe. No account, no API key.",
-        "fr": "La station météo de démonstration lit de vraies données via l'API gratuite Open-Meteo : choisissez les coordonnées à observer. Pas de compte, pas de clé d'API."
+        "en": "For Risco LightSYS, LightSYS+, Agility, WiComm and ProSYS Plus alarm panels with a network (IP) module, on your network, without the Risco cloud: the state of each partition (disarmed, armed away or stay, in alarm, ready), the zones (open or closed, bypassed, alarm, battery), the panel troubles (mains, battery, tamper), arm and disarm buttons, scene triggers. The panel accepts one local connection at a time: stop any other software using it (Home Assistant, a Risco bridge). Never tested on a real panel. Unofficial, not affiliated with Risco Group.",
+        "fr": "Pour les centrales d'alarme Risco LightSYS, LightSYS+, Agility, WiComm et ProSYS Plus équipées d'un module réseau (IP), sur votre réseau, sans le cloud Risco : l'état de chaque partition (désarmée, armée totale ou partielle, en alarme, prête), les zones (ouvertes ou fermées, contournées, alarme, pile), les défauts de la centrale (secteur, batterie, autoprotection), des boutons d'armement et de désarmement, des déclencheurs de scène. La centrale n'accepte qu'une connexion locale à la fois : arrêtez tout autre logiciel qui l'utilise (Home Assistant, un pont Risco). Jamais testé sur une vraie centrale. Non officiel, sans lien avec Risco Group."
       },
       "links": [
         {
-          "url": "https://open-meteo.com/en/docs",
-          "label": { "en": "Open-Meteo documentation", "fr": "Documentation Open-Meteo" }
+          "url": "https://github.com/LM1LC3N7/gladys-risco/blob/main/docs/fr.md",
+          "label": {
+            "en": "Guide (French)",
+            "fr": "Guide (français)"
+          }
+        },
+        {
+          "url": "https://github.com/LM1LC3N7/gladys-risco/blob/main/docs/en.md",
+          "label": {
+            "en": "Guide (English)",
+            "fr": "Guide (anglais)"
+          }
         }
       ]
     },
     {
-      "key": "latitude",
-      "type": "number",
-      "label": { "en": "Latitude", "fr": "Latitude" },
-      "description": {
-        "en": "Latitude used for the demo weather sensor.",
-        "fr": "Latitude utilisée par le capteur météo de démonstration."
+      "key": "host",
+      "type": "string",
+      "label": {
+        "en": "Address of the panel",
+        "fr": "Adresse de la centrale"
       },
-      "placeholder": { "en": "e.g. 48.8566", "fr": "ex. 48.8566" },
-      "required": true,
-      "default": 48.8566,
-      "min": -90,
-      "max": 90
+      "description": {
+        "en": "The IP address of its network module (give it a fixed address in your router).",
+        "fr": "L’adresse IP de son module réseau (donnez-lui une adresse fixe dans votre box)."
+      },
+      "placeholder": {
+        "en": "192.168.1.50",
+        "fr": "192.168.1.50"
+      },
+      "required": true
     },
     {
-      "key": "longitude",
+      "key": "port",
       "type": "number",
-      "label": { "en": "Longitude", "fr": "Longitude" },
-      "description": {
-        "en": "Longitude used for the demo weather sensor.",
-        "fr": "Longitude utilisée par le capteur météo de démonstration."
+      "label": {
+        "en": "Port",
+        "fr": "Port"
       },
-      "placeholder": { "en": "e.g. 2.3522", "fr": "ex. 2.3522" },
-      "required": true,
-      "default": 2.3522,
-      "min": -180,
-      "max": 180
+      "description": {
+        "en": "1000 unless your installer changed it.",
+        "fr": "Sauf changement par votre installateur : 1000."
+      },
+      "required": false,
+      "default": 1000,
+      "min": 1,
+      "max": 65535
     },
     {
-      "key": "unit",
+      "key": "access_code",
+      "type": "secret",
+      "label": {
+        "en": "Access code of the panel",
+        "fr": "Code d’accès de la centrale"
+      },
+      "description": {
+        "en": "The remote access code of the panel (5678 unless your installer changed it), not a keypad user code. Kept by Gladys in its database, never shown again, sent only to the panel.",
+        "fr": "Le code d’accès à distance de la centrale (5678 sauf si votre installateur l’a changé), pas un code utilisateur du clavier. Gardé par Gladys dans sa base, jamais réaffiché, envoyé seulement à la centrale."
+      },
+      "required": true
+    },
+    {
+      "key": "zone_kinds",
+      "type": "string",
+      "label": {
+        "en": "Kind of the zones",
+        "fr": "Type des zones"
+      },
+      "description": {
+        "en": "Optional: how the zones show in Gladys, e.g. \"2:motion, 5:smoke, 7-9:motion\" (opening, motion, smoke, leak). A zone not listed is an opening. Names come from the panel.",
+        "fr": "Facultatif : comment les zones apparaissent dans Gladys, par ex. « 2:motion, 5:smoke, 7-9:motion » (opening ouverture, motion mouvement, smoke fumée, leak fuite). Une zone absente de la liste est une ouverture. Les noms viennent de la centrale."
+      },
+      "placeholder": {
+        "en": "2:motion, 5:smoke",
+        "fr": "2:motion, 5:smoke"
+      },
+      "required": false
+    },
+    {
+      "key": "safety",
+      "type": "section",
+      "label": {
+        "en": "Safety",
+        "fr": "Sécurité"
+      },
+      "description": {
+        "en": "Anyone who can control the devices in Gladys (dashboard, scenes, the Gladys app) can use the alarm through this integration. Arming is allowed by default. Disarming and bypassing zones are off by default: allow them only if your Gladys is well protected. Every command is written in the integration logs; the access code never is.",
+        "fr": "Toute personne pouvant piloter les appareils dans Gladys (tableau de bord, scènes, application Gladys) peut agir sur l'alarme par cette intégration. L'armement est permis par défaut. Le désarmement et le contournement des zones sont désactivés par défaut : ne les autorisez que si votre Gladys est bien protégé. Chaque commande est écrite dans les journaux de l'intégration, jamais le code d'accès."
+      }
+    },
+    {
+      "key": "allow_arm",
+      "type": "boolean",
+      "label": {
+        "en": "Allow arming from Gladys",
+        "fr": "Autoriser l'armement depuis Gladys"
+      },
+      "required": false,
+      "default": true
+    },
+    {
+      "key": "allow_disarm",
+      "type": "boolean",
+      "label": {
+        "en": "Allow disarming from Gladys",
+        "fr": "Autoriser le désarmement depuis Gladys"
+      },
+      "description": {
+        "en": "Disarming also silences an alarm in progress. The panel does not ask for a user code: the access code is enough.",
+        "fr": "Désarmer coupe aussi une alarme en cours. La centrale ne demande pas de code utilisateur : le code d’accès suffit."
+      },
+      "required": false,
+      "default": false
+    },
+    {
+      "key": "allow_bypass",
+      "type": "boolean",
+      "label": {
+        "en": "Allow bypassing zones from Gladys",
+        "fr": "Autoriser le contournement des zones depuis Gladys"
+      },
+      "description": {
+        "en": "A bypassed zone no longer triggers the alarm.",
+        "fr": "Une zone contournée ne déclenche plus l'alarme."
+      },
+      "required": false,
+      "default": false
+    },
+    {
+      "key": "language",
       "type": "select",
-      "label": { "en": "Temperature unit", "fr": "Unité de température" },
-      "required": false,
-      "default": "celsius",
-      "options": [
-        { "value": "celsius", "label": { "en": "Celsius", "fr": "Celsius" } },
-        { "value": "fahrenheit", "label": { "en": "Fahrenheit", "fr": "Fahrenheit" } }
-      ]
-    },
-    {
-      "key": "poll_frequency",
-      "type": "number",
-      "label": { "en": "Refresh interval (s)", "fr": "Intervalle de rafraîchissement (s)" },
+      "label": {
+        "en": "Language of the names",
+        "fr": "Langue des noms"
+      },
       "description": {
-        "en": "How often sensors are polled, in seconds (one minute minimum).",
-        "fr": "Fréquence d'interrogation des capteurs, en secondes (une minute minimum)."
+        "en": "Used for the names of the devices and features added from now on, and for the partition state.",
+        "fr": "Sert aux noms des appareils et fonctionnalités ajoutés désormais, et à l'état des partitions."
       },
       "required": false,
-      "default": 300,
-      "min": 60,
-      "max": 3600
+      "default": "fr",
+      "options": [
+        {
+          "value": "fr",
+          "label": {
+            "en": "French",
+            "fr": "Français"
+          }
+        },
+        {
+          "value": "en",
+          "label": {
+            "en": "English",
+            "fr": "Anglais"
+          }
+        }
+      ]
     }
   ],
   "actions": [
     {
-      "key": "test_weather",
-      "label": { "en": "Test the weather provider", "fr": "Tester le fournisseur météo" },
+      "key": "test_connection",
+      "label": {
+        "en": "Test the connection",
+        "fr": "Tester la connexion"
+      },
       "timeout_seconds": 30
-    },
-    {
-      "key": "identify",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
-          "required": true
-        }
-      ]
     }
   ],
   "scene_triggers": [
     {
-      "key": "motion_detected",
-      "label": { "en": "Motion detected", "fr": "Mouvement détecté" },
+      "key": "alarm_triggered",
+      "label": {
+        "en": "Risco alarm triggered",
+        "fr": "Alarme Risco déclenchée"
+      },
       "description": {
-        "en": "A demo motion sensor saw a person or an animal move.",
-        "fr": "Un détecteur de démonstration a vu bouger une personne ou un animal."
+        "en": "A partition goes into alarm.",
+        "fr": "Une partition passe en alarme."
       },
       "fields": [
         {
-          "key": "device",
+          "key": "partition",
           "type": "select",
-          "source": "devices",
-          "label": { "en": "Sensor", "fr": "Détecteur" }
-        },
-        {
-          "key": "target",
-          "type": "multi_select",
-          "label": { "en": "What moved", "fr": "Ce qui a bougé" },
+          "label": {
+            "en": "Partition",
+            "fr": "Partition"
+          },
           "options": [
-            { "value": "person", "label": { "en": "Person", "fr": "Personne" } },
-            { "value": "animal", "label": { "en": "Animal", "fr": "Animal" } }
+            {
+              "value": "1",
+              "label": {
+                "en": "1",
+                "fr": "1"
+              }
+            },
+            {
+              "value": "2",
+              "label": {
+                "en": "2",
+                "fr": "2"
+              }
+            },
+            {
+              "value": "3",
+              "label": {
+                "en": "3",
+                "fr": "3"
+              }
+            },
+            {
+              "value": "4",
+              "label": {
+                "en": "4",
+                "fr": "4"
+              }
+            },
+            {
+              "value": "5",
+              "label": {
+                "en": "5",
+                "fr": "5"
+              }
+            },
+            {
+              "value": "6",
+              "label": {
+                "en": "6",
+                "fr": "6"
+              }
+            },
+            {
+              "value": "7",
+              "label": {
+                "en": "7",
+                "fr": "7"
+              }
+            },
+            {
+              "value": "8",
+              "label": {
+                "en": "8",
+                "fr": "8"
+              }
+            },
+            {
+              "value": "9",
+              "label": {
+                "en": "9",
+                "fr": "9"
+              }
+            },
+            {
+              "value": "10",
+              "label": {
+                "en": "10",
+                "fr": "10"
+              }
+            },
+            {
+              "value": "11",
+              "label": {
+                "en": "11",
+                "fr": "11"
+              }
+            },
+            {
+              "value": "12",
+              "label": {
+                "en": "12",
+                "fr": "12"
+              }
+            },
+            {
+              "value": "13",
+              "label": {
+                "en": "13",
+                "fr": "13"
+              }
+            },
+            {
+              "value": "14",
+              "label": {
+                "en": "14",
+                "fr": "14"
+              }
+            },
+            {
+              "value": "15",
+              "label": {
+                "en": "15",
+                "fr": "15"
+              }
+            },
+            {
+              "value": "16",
+              "label": {
+                "en": "16",
+                "fr": "16"
+              }
+            },
+            {
+              "value": "17",
+              "label": {
+                "en": "17",
+                "fr": "17"
+              }
+            },
+            {
+              "value": "18",
+              "label": {
+                "en": "18",
+                "fr": "18"
+              }
+            },
+            {
+              "value": "19",
+              "label": {
+                "en": "19",
+                "fr": "19"
+              }
+            },
+            {
+              "value": "20",
+              "label": {
+                "en": "20",
+                "fr": "20"
+              }
+            },
+            {
+              "value": "21",
+              "label": {
+                "en": "21",
+                "fr": "21"
+              }
+            },
+            {
+              "value": "22",
+              "label": {
+                "en": "22",
+                "fr": "22"
+              }
+            },
+            {
+              "value": "23",
+              "label": {
+                "en": "23",
+                "fr": "23"
+              }
+            },
+            {
+              "value": "24",
+              "label": {
+                "en": "24",
+                "fr": "24"
+              }
+            },
+            {
+              "value": "25",
+              "label": {
+                "en": "25",
+                "fr": "25"
+              }
+            },
+            {
+              "value": "26",
+              "label": {
+                "en": "26",
+                "fr": "26"
+              }
+            },
+            {
+              "value": "27",
+              "label": {
+                "en": "27",
+                "fr": "27"
+              }
+            },
+            {
+              "value": "28",
+              "label": {
+                "en": "28",
+                "fr": "28"
+              }
+            },
+            {
+              "value": "29",
+              "label": {
+                "en": "29",
+                "fr": "29"
+              }
+            },
+            {
+              "value": "30",
+              "label": {
+                "en": "30",
+                "fr": "30"
+              }
+            },
+            {
+              "value": "31",
+              "label": {
+                "en": "31",
+                "fr": "31"
+              }
+            },
+            {
+              "value": "32",
+              "label": {
+                "en": "32",
+                "fr": "32"
+              }
+            }
           ]
         }
       ],
       "variables": [
         {
-          "key": "target",
+          "key": "partition",
           "type": "string",
-          "label": { "en": "What moved", "fr": "Ce qui a bougé" }
+          "label": {
+            "en": "Partition",
+            "fr": "Partition"
+          }
+        },
+        {
+          "key": "zone",
+          "type": "number",
+          "label": {
+            "en": "Zone in alarm",
+            "fr": "Zone en alarme"
+          }
+        }
+      ]
+    },
+    {
+      "key": "armed",
+      "label": {
+        "en": "Risco partition armed",
+        "fr": "Partition Risco armée"
+      },
+      "description": {
+        "en": "A partition was armed (from Gladys, a keypad, a key fob or the Risco app).",
+        "fr": "Une partition a été armée (depuis Gladys, un clavier, une télécommande ou l'application Risco)."
+      },
+      "fields": [
+        {
+          "key": "partition",
+          "type": "select",
+          "label": {
+            "en": "Partition",
+            "fr": "Partition"
+          },
+          "options": [
+            {
+              "value": "1",
+              "label": {
+                "en": "1",
+                "fr": "1"
+              }
+            },
+            {
+              "value": "2",
+              "label": {
+                "en": "2",
+                "fr": "2"
+              }
+            },
+            {
+              "value": "3",
+              "label": {
+                "en": "3",
+                "fr": "3"
+              }
+            },
+            {
+              "value": "4",
+              "label": {
+                "en": "4",
+                "fr": "4"
+              }
+            },
+            {
+              "value": "5",
+              "label": {
+                "en": "5",
+                "fr": "5"
+              }
+            },
+            {
+              "value": "6",
+              "label": {
+                "en": "6",
+                "fr": "6"
+              }
+            },
+            {
+              "value": "7",
+              "label": {
+                "en": "7",
+                "fr": "7"
+              }
+            },
+            {
+              "value": "8",
+              "label": {
+                "en": "8",
+                "fr": "8"
+              }
+            },
+            {
+              "value": "9",
+              "label": {
+                "en": "9",
+                "fr": "9"
+              }
+            },
+            {
+              "value": "10",
+              "label": {
+                "en": "10",
+                "fr": "10"
+              }
+            },
+            {
+              "value": "11",
+              "label": {
+                "en": "11",
+                "fr": "11"
+              }
+            },
+            {
+              "value": "12",
+              "label": {
+                "en": "12",
+                "fr": "12"
+              }
+            },
+            {
+              "value": "13",
+              "label": {
+                "en": "13",
+                "fr": "13"
+              }
+            },
+            {
+              "value": "14",
+              "label": {
+                "en": "14",
+                "fr": "14"
+              }
+            },
+            {
+              "value": "15",
+              "label": {
+                "en": "15",
+                "fr": "15"
+              }
+            },
+            {
+              "value": "16",
+              "label": {
+                "en": "16",
+                "fr": "16"
+              }
+            },
+            {
+              "value": "17",
+              "label": {
+                "en": "17",
+                "fr": "17"
+              }
+            },
+            {
+              "value": "18",
+              "label": {
+                "en": "18",
+                "fr": "18"
+              }
+            },
+            {
+              "value": "19",
+              "label": {
+                "en": "19",
+                "fr": "19"
+              }
+            },
+            {
+              "value": "20",
+              "label": {
+                "en": "20",
+                "fr": "20"
+              }
+            },
+            {
+              "value": "21",
+              "label": {
+                "en": "21",
+                "fr": "21"
+              }
+            },
+            {
+              "value": "22",
+              "label": {
+                "en": "22",
+                "fr": "22"
+              }
+            },
+            {
+              "value": "23",
+              "label": {
+                "en": "23",
+                "fr": "23"
+              }
+            },
+            {
+              "value": "24",
+              "label": {
+                "en": "24",
+                "fr": "24"
+              }
+            },
+            {
+              "value": "25",
+              "label": {
+                "en": "25",
+                "fr": "25"
+              }
+            },
+            {
+              "value": "26",
+              "label": {
+                "en": "26",
+                "fr": "26"
+              }
+            },
+            {
+              "value": "27",
+              "label": {
+                "en": "27",
+                "fr": "27"
+              }
+            },
+            {
+              "value": "28",
+              "label": {
+                "en": "28",
+                "fr": "28"
+              }
+            },
+            {
+              "value": "29",
+              "label": {
+                "en": "29",
+                "fr": "29"
+              }
+            },
+            {
+              "value": "30",
+              "label": {
+                "en": "30",
+                "fr": "30"
+              }
+            },
+            {
+              "value": "31",
+              "label": {
+                "en": "31",
+                "fr": "31"
+              }
+            },
+            {
+              "value": "32",
+              "label": {
+                "en": "32",
+                "fr": "32"
+              }
+            }
+          ]
+        },
+        {
+          "key": "mode",
+          "type": "select",
+          "label": {
+            "en": "Mode",
+            "fr": "Mode"
+          },
+          "options": [
+            {
+              "value": "armed_away",
+              "label": {
+                "en": "Armed away",
+                "fr": "Armée (totale)"
+              }
+            },
+            {
+              "value": "armed_stay",
+              "label": {
+                "en": "Armed stay",
+                "fr": "Armée (partielle)"
+              }
+            },
+            {
+              "value": "armed_group",
+              "label": {
+                "en": "Armed by group",
+                "fr": "Armée (groupe)"
+              }
+            }
+          ]
+        }
+      ],
+      "variables": [
+        {
+          "key": "partition",
+          "type": "string",
+          "label": {
+            "en": "Partition",
+            "fr": "Partition"
+          }
+        },
+        {
+          "key": "mode",
+          "type": "string",
+          "label": {
+            "en": "Mode",
+            "fr": "Mode"
+          }
+        },
+        {
+          "key": "by_gladys",
+          "type": "boolean",
+          "label": {
+            "en": "Asked by Gladys",
+            "fr": "Demandé par Gladys"
+          }
+        }
+      ]
+    },
+    {
+      "key": "disarmed",
+      "label": {
+        "en": "Risco partition disarmed",
+        "fr": "Partition Risco désarmée"
+      },
+      "description": {
+        "en": "A partition was disarmed (from Gladys, a keypad, a key fob or the Risco app).",
+        "fr": "Une partition a été désarmée (depuis Gladys, un clavier, une télécommande ou l'application Risco)."
+      },
+      "fields": [
+        {
+          "key": "partition",
+          "type": "select",
+          "label": {
+            "en": "Partition",
+            "fr": "Partition"
+          },
+          "options": [
+            {
+              "value": "1",
+              "label": {
+                "en": "1",
+                "fr": "1"
+              }
+            },
+            {
+              "value": "2",
+              "label": {
+                "en": "2",
+                "fr": "2"
+              }
+            },
+            {
+              "value": "3",
+              "label": {
+                "en": "3",
+                "fr": "3"
+              }
+            },
+            {
+              "value": "4",
+              "label": {
+                "en": "4",
+                "fr": "4"
+              }
+            },
+            {
+              "value": "5",
+              "label": {
+                "en": "5",
+                "fr": "5"
+              }
+            },
+            {
+              "value": "6",
+              "label": {
+                "en": "6",
+                "fr": "6"
+              }
+            },
+            {
+              "value": "7",
+              "label": {
+                "en": "7",
+                "fr": "7"
+              }
+            },
+            {
+              "value": "8",
+              "label": {
+                "en": "8",
+                "fr": "8"
+              }
+            },
+            {
+              "value": "9",
+              "label": {
+                "en": "9",
+                "fr": "9"
+              }
+            },
+            {
+              "value": "10",
+              "label": {
+                "en": "10",
+                "fr": "10"
+              }
+            },
+            {
+              "value": "11",
+              "label": {
+                "en": "11",
+                "fr": "11"
+              }
+            },
+            {
+              "value": "12",
+              "label": {
+                "en": "12",
+                "fr": "12"
+              }
+            },
+            {
+              "value": "13",
+              "label": {
+                "en": "13",
+                "fr": "13"
+              }
+            },
+            {
+              "value": "14",
+              "label": {
+                "en": "14",
+                "fr": "14"
+              }
+            },
+            {
+              "value": "15",
+              "label": {
+                "en": "15",
+                "fr": "15"
+              }
+            },
+            {
+              "value": "16",
+              "label": {
+                "en": "16",
+                "fr": "16"
+              }
+            },
+            {
+              "value": "17",
+              "label": {
+                "en": "17",
+                "fr": "17"
+              }
+            },
+            {
+              "value": "18",
+              "label": {
+                "en": "18",
+                "fr": "18"
+              }
+            },
+            {
+              "value": "19",
+              "label": {
+                "en": "19",
+                "fr": "19"
+              }
+            },
+            {
+              "value": "20",
+              "label": {
+                "en": "20",
+                "fr": "20"
+              }
+            },
+            {
+              "value": "21",
+              "label": {
+                "en": "21",
+                "fr": "21"
+              }
+            },
+            {
+              "value": "22",
+              "label": {
+                "en": "22",
+                "fr": "22"
+              }
+            },
+            {
+              "value": "23",
+              "label": {
+                "en": "23",
+                "fr": "23"
+              }
+            },
+            {
+              "value": "24",
+              "label": {
+                "en": "24",
+                "fr": "24"
+              }
+            },
+            {
+              "value": "25",
+              "label": {
+                "en": "25",
+                "fr": "25"
+              }
+            },
+            {
+              "value": "26",
+              "label": {
+                "en": "26",
+                "fr": "26"
+              }
+            },
+            {
+              "value": "27",
+              "label": {
+                "en": "27",
+                "fr": "27"
+              }
+            },
+            {
+              "value": "28",
+              "label": {
+                "en": "28",
+                "fr": "28"
+              }
+            },
+            {
+              "value": "29",
+              "label": {
+                "en": "29",
+                "fr": "29"
+              }
+            },
+            {
+              "value": "30",
+              "label": {
+                "en": "30",
+                "fr": "30"
+              }
+            },
+            {
+              "value": "31",
+              "label": {
+                "en": "31",
+                "fr": "31"
+              }
+            },
+            {
+              "value": "32",
+              "label": {
+                "en": "32",
+                "fr": "32"
+              }
+            }
+          ]
+        }
+      ],
+      "variables": [
+        {
+          "key": "partition",
+          "type": "string",
+          "label": {
+            "en": "Partition",
+            "fr": "Partition"
+          }
+        },
+        {
+          "key": "by_gladys",
+          "type": "boolean",
+          "label": {
+            "en": "Asked by Gladys",
+            "fr": "Demandé par Gladys"
+          }
         }
       ]
     }
   ],
   "scene_actions": [
     {
-      "key": "identify_device",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
+      "key": "arm",
+      "label": {
+        "en": "Arm the Risco alarm",
+        "fr": "Armer l'alarme Risco"
+      },
       "description": {
-        "en": "Make a device signal itself (the demo light blinks).",
-        "fr": "Fait se signaler un appareil (la lampe de démonstration clignote)."
+        "en": "Arms a partition, away or stay (if arming from Gladys is allowed).",
+        "fr": "Arme une partition, en total ou en partiel (si l'armement depuis Gladys est autorisé)."
       },
       "timeout_seconds": 15,
       "fields": [
         {
-          "key": "device",
+          "key": "partition",
           "type": "select",
-          "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
-          "required": true
-        }
-      ],
-      "outputs": [
+          "label": {
+            "en": "Partition",
+            "fr": "Partition"
+          },
+          "required": false,
+          "default": "1",
+          "options": [
+            {
+              "value": "1",
+              "label": {
+                "en": "1",
+                "fr": "1"
+              }
+            },
+            {
+              "value": "2",
+              "label": {
+                "en": "2",
+                "fr": "2"
+              }
+            },
+            {
+              "value": "3",
+              "label": {
+                "en": "3",
+                "fr": "3"
+              }
+            },
+            {
+              "value": "4",
+              "label": {
+                "en": "4",
+                "fr": "4"
+              }
+            },
+            {
+              "value": "5",
+              "label": {
+                "en": "5",
+                "fr": "5"
+              }
+            },
+            {
+              "value": "6",
+              "label": {
+                "en": "6",
+                "fr": "6"
+              }
+            },
+            {
+              "value": "7",
+              "label": {
+                "en": "7",
+                "fr": "7"
+              }
+            },
+            {
+              "value": "8",
+              "label": {
+                "en": "8",
+                "fr": "8"
+              }
+            },
+            {
+              "value": "9",
+              "label": {
+                "en": "9",
+                "fr": "9"
+              }
+            },
+            {
+              "value": "10",
+              "label": {
+                "en": "10",
+                "fr": "10"
+              }
+            },
+            {
+              "value": "11",
+              "label": {
+                "en": "11",
+                "fr": "11"
+              }
+            },
+            {
+              "value": "12",
+              "label": {
+                "en": "12",
+                "fr": "12"
+              }
+            },
+            {
+              "value": "13",
+              "label": {
+                "en": "13",
+                "fr": "13"
+              }
+            },
+            {
+              "value": "14",
+              "label": {
+                "en": "14",
+                "fr": "14"
+              }
+            },
+            {
+              "value": "15",
+              "label": {
+                "en": "15",
+                "fr": "15"
+              }
+            },
+            {
+              "value": "16",
+              "label": {
+                "en": "16",
+                "fr": "16"
+              }
+            },
+            {
+              "value": "17",
+              "label": {
+                "en": "17",
+                "fr": "17"
+              }
+            },
+            {
+              "value": "18",
+              "label": {
+                "en": "18",
+                "fr": "18"
+              }
+            },
+            {
+              "value": "19",
+              "label": {
+                "en": "19",
+                "fr": "19"
+              }
+            },
+            {
+              "value": "20",
+              "label": {
+                "en": "20",
+                "fr": "20"
+              }
+            },
+            {
+              "value": "21",
+              "label": {
+                "en": "21",
+                "fr": "21"
+              }
+            },
+            {
+              "value": "22",
+              "label": {
+                "en": "22",
+                "fr": "22"
+              }
+            },
+            {
+              "value": "23",
+              "label": {
+                "en": "23",
+                "fr": "23"
+              }
+            },
+            {
+              "value": "24",
+              "label": {
+                "en": "24",
+                "fr": "24"
+              }
+            },
+            {
+              "value": "25",
+              "label": {
+                "en": "25",
+                "fr": "25"
+              }
+            },
+            {
+              "value": "26",
+              "label": {
+                "en": "26",
+                "fr": "26"
+              }
+            },
+            {
+              "value": "27",
+              "label": {
+                "en": "27",
+                "fr": "27"
+              }
+            },
+            {
+              "value": "28",
+              "label": {
+                "en": "28",
+                "fr": "28"
+              }
+            },
+            {
+              "value": "29",
+              "label": {
+                "en": "29",
+                "fr": "29"
+              }
+            },
+            {
+              "value": "30",
+              "label": {
+                "en": "30",
+                "fr": "30"
+              }
+            },
+            {
+              "value": "31",
+              "label": {
+                "en": "31",
+                "fr": "31"
+              }
+            },
+            {
+              "value": "32",
+              "label": {
+                "en": "32",
+                "fr": "32"
+              }
+            }
+          ]
+        },
         {
-          "key": "signalled",
-          "type": "boolean",
-          "label": { "en": "Device signalled", "fr": "Appareil signalé" }
+          "key": "mode",
+          "type": "select",
+          "label": {
+            "en": "Mode",
+            "fr": "Mode"
+          },
+          "required": false,
+          "default": "armed_away",
+          "options": [
+            {
+              "value": "armed_away",
+              "label": {
+                "en": "Armed away",
+                "fr": "Armée (totale)"
+              }
+            },
+            {
+              "value": "armed_stay",
+              "label": {
+                "en": "Armed stay",
+                "fr": "Armée (partielle)"
+              }
+            }
+          ]
         }
       ]
-    }
-  ],
-  "widgets": [
+    },
     {
-      "key": "demo_status",
-      "label": { "en": "Demo status", "fr": "État de la démo" },
-      "description": {
-        "en": "Live temperature and plug power, plug connection and observed location.",
-        "fr": "Température et puissance en direct, connexion de la prise, position observée."
+      "key": "disarm",
+      "label": {
+        "en": "Disarm the Risco alarm",
+        "fr": "Désarmer l'alarme Risco"
       },
-      "icon": "activity",
-      "action_timeout_seconds": 15
+      "description": {
+        "en": "Disarms a partition: off unless allowed in the configuration.",
+        "fr": "Désarme une partition : désactivé sauf autorisation dans la configuration."
+      },
+      "timeout_seconds": 15,
+      "fields": [
+        {
+          "key": "partition",
+          "type": "select",
+          "label": {
+            "en": "Partition",
+            "fr": "Partition"
+          },
+          "required": false,
+          "default": "1",
+          "options": [
+            {
+              "value": "1",
+              "label": {
+                "en": "1",
+                "fr": "1"
+              }
+            },
+            {
+              "value": "2",
+              "label": {
+                "en": "2",
+                "fr": "2"
+              }
+            },
+            {
+              "value": "3",
+              "label": {
+                "en": "3",
+                "fr": "3"
+              }
+            },
+            {
+              "value": "4",
+              "label": {
+                "en": "4",
+                "fr": "4"
+              }
+            },
+            {
+              "value": "5",
+              "label": {
+                "en": "5",
+                "fr": "5"
+              }
+            },
+            {
+              "value": "6",
+              "label": {
+                "en": "6",
+                "fr": "6"
+              }
+            },
+            {
+              "value": "7",
+              "label": {
+                "en": "7",
+                "fr": "7"
+              }
+            },
+            {
+              "value": "8",
+              "label": {
+                "en": "8",
+                "fr": "8"
+              }
+            },
+            {
+              "value": "9",
+              "label": {
+                "en": "9",
+                "fr": "9"
+              }
+            },
+            {
+              "value": "10",
+              "label": {
+                "en": "10",
+                "fr": "10"
+              }
+            },
+            {
+              "value": "11",
+              "label": {
+                "en": "11",
+                "fr": "11"
+              }
+            },
+            {
+              "value": "12",
+              "label": {
+                "en": "12",
+                "fr": "12"
+              }
+            },
+            {
+              "value": "13",
+              "label": {
+                "en": "13",
+                "fr": "13"
+              }
+            },
+            {
+              "value": "14",
+              "label": {
+                "en": "14",
+                "fr": "14"
+              }
+            },
+            {
+              "value": "15",
+              "label": {
+                "en": "15",
+                "fr": "15"
+              }
+            },
+            {
+              "value": "16",
+              "label": {
+                "en": "16",
+                "fr": "16"
+              }
+            },
+            {
+              "value": "17",
+              "label": {
+                "en": "17",
+                "fr": "17"
+              }
+            },
+            {
+              "value": "18",
+              "label": {
+                "en": "18",
+                "fr": "18"
+              }
+            },
+            {
+              "value": "19",
+              "label": {
+                "en": "19",
+                "fr": "19"
+              }
+            },
+            {
+              "value": "20",
+              "label": {
+                "en": "20",
+                "fr": "20"
+              }
+            },
+            {
+              "value": "21",
+              "label": {
+                "en": "21",
+                "fr": "21"
+              }
+            },
+            {
+              "value": "22",
+              "label": {
+                "en": "22",
+                "fr": "22"
+              }
+            },
+            {
+              "value": "23",
+              "label": {
+                "en": "23",
+                "fr": "23"
+              }
+            },
+            {
+              "value": "24",
+              "label": {
+                "en": "24",
+                "fr": "24"
+              }
+            },
+            {
+              "value": "25",
+              "label": {
+                "en": "25",
+                "fr": "25"
+              }
+            },
+            {
+              "value": "26",
+              "label": {
+                "en": "26",
+                "fr": "26"
+              }
+            },
+            {
+              "value": "27",
+              "label": {
+                "en": "27",
+                "fr": "27"
+              }
+            },
+            {
+              "value": "28",
+              "label": {
+                "en": "28",
+                "fr": "28"
+              }
+            },
+            {
+              "value": "29",
+              "label": {
+                "en": "29",
+                "fr": "29"
+              }
+            },
+            {
+              "value": "30",
+              "label": {
+                "en": "30",
+                "fr": "30"
+              }
+            },
+            {
+              "value": "31",
+              "label": {
+                "en": "31",
+                "fr": "31"
+              }
+            },
+            {
+              "value": "32",
+              "label": {
+                "en": "32",
+                "fr": "32"
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

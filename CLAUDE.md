@@ -32,17 +32,27 @@ pushing.
 
 ```
 index.js                          SDK wiring only: handlers registered before connect()
-src/devices/index.js              registry of the device blueprints + dispatch helpers
-src/devices/<type>.js             one device type per file (buildDevice, onPoll, onSetValue...)
-src/scenes.js                     scene action handlers (manifest `scene_actions`)
-src/widgets.js                    dashboard widget handlers (manifest `widgets`)
-src/config.js                     DEFAULT_CONFIG (mirrors the manifest defaults) + normalization
-src/weather.js                    example driver (Open-Meteo)
+src/handlers.js                   the SDK handlers, shared with the tests
+src/app.js                        RiscoApp: lifecycle, model, devices, states, events, commands
+src/risco/frame.js                frames: CRC, scrambling, escapes, reader (pyrisco risco_crypt)
+src/risco/panel.js                panel capabilities, status letters (pyrisco panels/zone/...)
+src/risco/client.js               one TCP session: login, discovery, requests (pyrisco socket)
+src/devices.js                    model -> Gladys devices and states (pure)
+src/publisher.js                  states and scene events under the Gladys rate limits
+src/store.js                      /data: the stop after a refused access code
+src/config.js                     DEFAULTS (mirror the manifest defaults) + normalization
+src/constants.js, src/i18n.js     keys, timings, limits; French and English texts
 gladys-assistant-integration.json manifest: name, config_schema, actions, image...
 docs/en.md, docs/fr.md            user documentation, re-hosted by Gladys (mandatory)
-test/                             node --test, against the SDK's fake Gladys (integration-sdk/testing)
+test/                             node --test, the SDK's fake Gladys + test/helpers/fakeRisco.js
 .github/scripts/release.mjs       release helpers (manifest bump, changelog), tested in test/
 ```
+
+Safety rules of this integration (see TODO.md "Decisions"): disarming and
+bypassing stay off by default; commands are push buttons, never switches;
+a command decides on the status read from the panel just before it, one at a
+time; a command that may have left is never reported "not sent"; a refused
+access code stops the logins, never a loop; the access code is never logged.
 
 ## Rules
 

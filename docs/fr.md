@@ -1,67 +1,123 @@
-# Template de démonstration
+# Risco (LightSYS, Agility, WiComm) pour Gladys
 
-Ceci est la documentation utilisateur de l'intégration. Gladys ré-héberge ce
-fichier et affiche un lien **Documentation** permanent vers lui dans l'écran
-de configuration (dans la langue de l'utilisateur, avec l'anglais en repli) —
-c'est au moment de configurer que l'utilisateur en a le plus besoin. Gardez
-les courtes indications d'accueil dans les blocs `section` du `config_schema`
-du manifest ; mettez ici le pas-à-pas détaillé (captures d'écran, dépannage…).
+Cette intégration relie une centrale d'alarme **Risco** à Gladys Assistant,
+**en local** sur votre réseau (TCP), sans passer par le cloud Risco.
+
+> **Jamais testé sur une vraie centrale.** Le protocole vient de la
+> bibliothèque [pyrisco](https://github.com/OnFreund/pyrisco) (celle de
+> l'intégration Risco de Home Assistant), portée en JavaScript et vérifiée
+> seulement contre une centrale simulée. Faites vos premiers essais en
+> présence, centrale désarmée, et signalez ce qui ne va pas.
+>
+> Intégration non officielle, sans lien avec Risco Group.
+
+## Centrales prises en charge
+
+Les types que pyrisco connaît : Agility 4 (RW032), Agility (RW132), WiComm
+(RW232), WiCommPro (RW332), LightSYS (RP432), LightSYS+ (RP432MP), LightSYS
+Air (RW432MPV), ProSYS Plus / GT Plus (RP512). La centrale doit avoir un
+module réseau (IP) joignable depuis Gladys.
 
 ## Ce que vous obtenez
 
-Six appareils de démonstration apparaissent après l'installation : une
-station météo (vraies données Open-Meteo), un interrupteur, une lampe
-variable, une prise connectée avec mesure de puissance, un détecteur de
-mouvement et une caméra.
+- **Centrale Risco** : connectée ou non, alimentation secteur, batterie
+  faible, autoprotection du boîtier.
+- **Une partition par appareil** (nom repris de la centrale) :
+  - **État** en lecture seule : désarmée, armée (totale), armée (partielle),
+    armée (groupe) ;
+  - **Alarme en cours** et **Prête à armer** ;
+  - trois **boutons** : armement total, armement partiel, désarmer.
+- **Une zone par appareil** (nom repris de la centrale) : ouverte ou fermée
+  (ou mouvement, fumée, fuite selon le type choisi), alarme, contournée, pile
+  faible, et deux **boutons** : contourner, rétablir.
+- **Déclencheurs de scène** : alarme déclenchée (avec la zone si la centrale
+  la donne), partition armée (mode, demandé par Gladys ou non), partition
+  désarmée.
+- **Actions de scène** : armer (total ou partiel), désarmer.
+
+Aucune commande n'est un interrupteur : un « éteins tout » d'un assistant
+vocal, de HomeKit ou d'une scène ne peut pas désarmer l'alarme. Les états
+sont en lecture seule, les commandes sont des boutons.
 
 ## Configuration
 
-1. Ouvrez l'onglet **Configuration** de l'intégration.
-2. Renseignez la **latitude** et la **longitude** que la station météo de
-   démonstration doit observer (Paris par défaut), et choisissez votre unité
-   de température. L'**intervalle de rafraîchissement** règle la fréquence
-   de lecture de la station météo et de la puissance de la prise : toutes
-   les 5 minutes par défaut, toutes les minutes au plus.
-3. Enregistrez : les appareils apparaissent dans l'onglet **Découverte**,
-   prêts à être ajoutés.
+1. **Adresse de la centrale** : l'adresse IP de son module réseau. Donnez-lui
+   une adresse fixe dans votre box.
+2. **Port** : 1000, sauf changement par votre installateur.
+3. **Code d'accès de la centrale** : le code d'accès à distance (5678 par
+   défaut), pas un code utilisateur du clavier. C'est un champ secret : il est
+   gardé par Gladys dans sa base, jamais réaffiché dans l'interface, et envoyé
+   seulement à la centrale. Il n'apparaît jamais dans les journaux.
+4. **Type des zones** (facultatif) : par exemple `2:motion, 5:smoke,
+7-9:motion`. Types : `opening` (ouverture, par défaut), `motion`
+   (mouvement), `smoke` (fumée), `leak` (fuite d'eau).
+5. **Sécurité** : voir plus bas.
+6. **Langue des noms** : français ou anglais.
 
-Le réglage **Préférer la connexion locale** pilote la prise de
-démonstration : elle affiche en badge le canal réellement utilisé (local ou
-cloud), avec un point orange quand elle fonctionne en mode dégradé (local
-refusé, bascule cloud).
+Le bouton **Tester la connexion** se connecte tout de suite et indique le
+modèle, l'état des partitions et le nombre de zones.
 
-## Actions
+La première connexion lit toutes les zones possibles de la centrale (50 pour
+une LightSYS, 512 pour une LightSYS+) : cela peut prendre de quelques
+secondes à une minute. Les appareils apparaissent ensuite dans l'onglet
+Découverte.
 
-- **Tester le fournisseur météo** — effectue une requête en direct vers
-  Open-Meteo et affiche la température et l'humidité actuelles sous le
-  bouton.
-- **Identifier un appareil** — choisissez un de vos appareils dans la liste
-  et il se signale (la lampe de démonstration « clignote » dans les logs).
+## Sécurité
 
-## Scènes
+- **Armer** est permis par défaut (option « Autoriser l'armement depuis
+  Gladys »).
+- **Désarmer est désactivé par défaut.** La centrale ne demande pas de code
+  utilisateur pour désarmer : le code d'accès suffit. Ne l'autorisez que si
+  votre Gladys est bien protégé (comptes, accès à distance). Désarmer coupe
+  aussi une alarme en cours.
+- **Contourner une zone est désactivé par défaut** : une zone contournée ne
+  déclenche plus l'alarme.
+- Avant chaque commande, l'intégration **relit l'état sur la centrale** et
+  décide sur cet état, jamais sur ce qu'elle a en mémoire. Les commandes
+  passent une par une.
+- Une commande qui ne peut pas partir dans les temps (centrale lente, état
+  illisible) est refusée avec « rien n'a été envoyé ». Une commande partie
+  sans réponse de la centrale est annoncée « envoyée, sans confirmation » et
+  l'état est relu deux secondes plus tard : elle n'est jamais annoncée « non
+  envoyée ».
+- Le contournement est une bascule sur la centrale : après un envoi, la zone
+  n'accepte pas d'autre contournement tant que la centrale n'a pas montré le
+  résultat (30 s au plus).
+- Chaque commande, envoyée ou refusée, est écrite dans les journaux de
+  l'intégration.
 
-L'intégration ajoute ses propres cartes à l'éditeur de scènes (Gladys 5.1
-ou plus récent), dans la catégorie **Intégrations** :
+## Connexion et code refusé
 
-- **Mouvement détecté** (déclencheur) — lance la scène quand un détecteur
-  de démonstration voit bouger quelque chose. Choisissez éventuellement le
-  détecteur et ce qui a bougé (personne, animal) ; laissés vides, toute
-  détection correspond. Les actions suivantes peuvent lire ce qui a bougé
-  avec `{{triggerEvent.data.target}}`.
-- **Identifier un appareil** (action) — fait se signaler l'appareil choisi.
-  Elle indique si l'appareil a pu se signaler, pour que les actions
-  suivantes puissent en dépendre.
+- La centrale n'accepte **qu'une connexion locale à la fois** : arrêtez tout
+  autre logiciel qui s'y connecte (Home Assistant, un pont Risco). Si la
+  centrale ferme la connexion juste après chaque ouverture, l'intégration le
+  signale et espace ses essais (5 minutes).
+- Sur une coupure, les nouveaux essais sont espacés : 10 s, 30 s, 1 min,
+  2 min, puis toutes les 5 minutes.
+- **Si la centrale refuse le code d'accès, l'intégration s'arrête** et ne
+  réessaie pas toute seule, même après un redémarrage (un code faux essayé en
+  boucle pourrait bloquer la centrale). Corrigez le code puis enregistrez, ou
+  cliquez sur « Tester la connexion ». Le fichier `/data/risco-state.json`
+  garde seulement l'adresse concernée, jamais le code.
 
-## Tableau de bord
+## Limites connues
 
-Ajoutez le widget **État de la démo** à un tableau de bord : il affiche en
-direct la température de la station météo et la puissance de la prise du
-bureau, la connexion utilisée par la prise (en orange si dégradée) et la
-position observée. Son bouton **Identifier la lampe** fait se signaler la
-lampe de démonstration.
+- Jamais testé sur une vraie centrale (voir plus haut) ; les lettres d'état
+  lues sont celles que pyrisco documente.
+- Local seulement : le cloud Risco n'est pas pris en charge dans cette
+  version. Selon la configuration de votre centrale, la connexion au cloud
+  Risco et la connexion locale peuvent se gêner (non vérifié).
+- L'armement par groupe (A à D) est affiché, pas commandé.
+- Une alarme déjà en cours au démarrage de l'intégration ne déclenche pas de
+  scène (seuls les changements vus le font).
+- Les noms de zones sont lus en UTF-8 ; d'autres encodages de la centrale
+  peuvent donner des caractères remplacés.
 
-## Dépannage
+## Confidentialité
 
-L'intégration journalise tout ce qu'elle fait : consultez les logs de
-l'intégration depuis l'interface Gladys (ou `docker logs` sur l'hôte) avec
-`LOG_LEVEL=debug` pour le détail complet.
+Tout reste sur votre réseau : l'intégration ne parle qu'à la centrale.
+
+## Licence
+
+Apache-2.0. Logique de protocole portée de pyrisco (MIT, On Freund) : voir
+`THIRD_PARTY_NOTICES.md`.
