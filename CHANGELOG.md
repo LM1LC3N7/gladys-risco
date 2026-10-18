@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-18
+
 ### Added
 
 - Local connection to Risco LightSYS, LightSYS+, Agility, WiComm and ProSYS
@@ -70,4 +72,5 @@ the notes of the version's GitHub Release.
   fails the session; it never hides a zone.
 - A state forgotten while being sent is queued again at once.
 
-[Unreleased]: https://github.com/LM1LC3N7/gladys-risco/commits/main
+[Unreleased]: https://github.com/LM1LC3N7/gladys-risco/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/LM1LC3N7/gladys-risco/releases/tag/v0.1.1
