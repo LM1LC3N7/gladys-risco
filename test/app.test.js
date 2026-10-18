@@ -9,6 +9,7 @@ import { RiscoApp } from '../src/app.js';
 import { TIMINGS } from '../src/constants.js';
 import { registerHandlers } from '../src/handlers.js';
 import { memoryStore } from '../src/store.js';
+import { crc } from '../src/risco/frame.js';
 import { FakeRisco, quietLogger, settle, until } from './helpers/fakeRisco.js';
 
 const BASE = { host: '192.0.2.20', access_code: '5678', language: 'en' };
@@ -338,10 +339,210 @@ test('a device published again keeps the features the user created', async (t) =
 });
 
 test('the access code never reaches the logs', async (t) => {
-  const ctx = await setup(t, { config: { access_code: '908172', allow_disarm: true } });
-  ctx.panel.code = '908172';
+  const ctx = await setup(t, {
+    config: { access_code: '908172', allow_disarm: true },
+    panel: { code: '908172' },
+  });
   await up(ctx);
   await ctx.press(ctx.partition(1), 'arm-away');
   assert.ok(ctx.logger.lines.length > 5);
   assert.ok(!ctx.logger.lines.some((line) => line.includes('908172')));
+});
+
+/** The panel holds its answer to `wanted` (once) until release() is called. */
+const gateOnce = (panel, wanted) => {
+  let release;
+  const open = new Promise((resolve) => (release = resolve));
+  let used = false;
+  panel.gate = (text) => {
+    if (text !== wanted || used) return undefined;
+    used = true;
+    return open;
+  };
+  return () => release();
+};
+
+test('B1: an option switched off while the command waits: nothing sent', async (t) => {
+  const ctx = await setup(t, { config: { allow_disarm: true } });
+  await up(ctx);
+  ctx.panel.partitions[1].status = 'A-E-----';
+  const release = gateOnce(ctx.panel, 'PSTT1?');
+  const pending = ctx.press(ctx.partition(1), 'disarm');
+  await until(() => ctx.panel.requests.includes('PSTT1?'));
+  await ctx.gladys.fake.configUpdated({ ...BASE, allow_disarm: false });
+  release();
+  const ack = await pending;
+  assert.equal(ack.success, false);
+  assert.match(ack.error, /Disarming from Gladys is disabled.*nothing was sent/);
+  assert.deepEqual(ctx.panel.commands, []);
+});
+
+test('B1: the option is read again for a command queued behind another', async (t) => {
+  const ctx = await setup(t, { config: { allow_bypass: true } });
+  await up(ctx);
+  const release = gateOnce(ctx.panel, 'ZSTT*1?');
+  const first = ctx.press(ctx.zone(1), 'bypass');
+  const second = ctx.press(ctx.zone(2), 'bypass');
+  await until(() => ctx.panel.requests.includes('ZSTT*1?'));
+  await ctx.gladys.fake.configUpdated({ ...BASE, allow_bypass: false });
+  release();
+  assert.equal((await first).success, false);
+  assert.equal((await second).success, false);
+  assert.deepEqual(ctx.panel.commands, []);
+});
+
+test('I1: an answer that is neither ACK nor an error: sent, not confirmed, guarded', async (t) => {
+  const ctx = await setup(t, { config: { allow_bypass: true } });
+  await up(ctx);
+  ctx.panel.reply = (text) => (text === 'ZBYPAS=2' ? 'ZBYPAS=2' : undefined);
+  const ack = await ctx.press(ctx.zone(2), 'bypass');
+  assert.equal(ack.success, false);
+  assert.match(ack.error, /Sent to the panel .*without confirmation/);
+  const again = await ctx.press(ctx.zone(2), 'bypass');
+  assert.equal(again.success, false);
+  assert.match(again.error, /not confirmed yet/);
+  assert.deepEqual(ctx.panel.commands, ['ZBYPAS=2'], 'the second press sent nothing');
+});
+
+test('I1: the same rule for ARM: an echo is "sent, not confirmed", never refused', async (t) => {
+  const ctx = await setup(t);
+  await up(ctx);
+  ctx.panel.reply = (text) => (text === 'ARM=1' ? 'ARM=1' : undefined);
+  const ack = await ctx.press(ctx.partition(1), 'arm-away');
+  assert.match(ack.error, /without confirmation/);
+  assert.doesNotMatch(ack.error, /refused/);
+});
+
+test('I2: an error without id after a timeout is ambiguous: sent, guarded', async (t) => {
+  const ctx = await setup(t, { config: { allow_bypass: true } });
+  await up(ctx);
+  const client = ctx.app.client;
+  ctx.panel.reply = (text) => {
+    if (text !== 'ZBYPAS=2') return undefined;
+    // An earlier request timed out: the line is uncertain when N05 comes.
+    client.uncertain = true;
+    const body = Buffer.from('N05\x17');
+    ctx.panel.current.raw(
+      Buffer.concat([Buffer.from([2]), body, Buffer.from(crc(body)), Buffer.from([3])]),
+    );
+    return null;
+  };
+  const ack = await ctx.press(ctx.zone(2), 'bypass');
+  assert.equal(ack.success, false);
+  assert.match(ack.error, /without confirmation/);
+  const again = await ctx.press(ctx.zone(2), 'bypass');
+  assert.match(again.error, /not confirmed yet/, 'the guard is set');
+  assert.deepEqual(ctx.panel.commands, ['ZBYPAS=2']);
+});
+
+test('I3: "Test the connection" during the discovery opens no second socket', async (t) => {
+  const ctx = await setup(t);
+  const release = gateOnce(ctx.panel, 'ZTYPE*10?');
+  await until(() => ctx.panel.requests.includes('ZTYPE*10?'));
+  const pending = ctx.gladys.fake.action('test_connection');
+  await settle();
+  assert.equal(ctx.panel.sockets.length, 1);
+  assert.equal(ctx.app.client.progress.zone, 10);
+  release();
+  const ack = await pending;
+  assert.equal(ack.success, true, ack.error);
+  assert.equal(ctx.panel.sockets.length, 1);
+});
+
+test('M2: a status read stuck behind the line is withdrawn in time: nothing sent', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
+  const ctx = await setup(t);
+  await up(ctx);
+  ctx.panel.hold = (text) => text === 'PSTT2?';
+  const reads = ctx.panel.requests.filter((r) => r === 'PSTT1?').length;
+  const busy = ctx.app.client.readPartition(2, { timeout: 60_000 }).catch(() => undefined);
+  const pending = ctx.press(ctx.partition(1), 'arm-away');
+  await settle();
+  t.mock.timers.tick(TIMINGS.sendBy);
+  const ack = await pending;
+  assert.equal(ack.success, false);
+  assert.match(ack.error, /nothing was sent/);
+  assert.equal(
+    ctx.panel.requests.filter((r) => r === 'PSTT1?').length,
+    reads,
+    'the read never left',
+  );
+  assert.deepEqual(ctx.panel.commands, []);
+  ctx.app.stop({ final: true });
+  await busy;
+});
+
+test('M3: a scene action without partition or mode is refused, never guessed', async (t) => {
+  const ctx = await setup(t, { config: { allow_disarm: true } });
+  await up(ctx);
+  assert.equal((await ctx.gladys.fake.sceneAction('arm', { mode: 'armed_away' })).success, false);
+  assert.equal((await ctx.gladys.fake.sceneAction('arm', { partition: '1' })).success, false);
+  assert.equal((await ctx.gladys.fake.sceneAction('disarm', {})).success, false);
+  assert.deepEqual(ctx.panel.commands, []);
+});
+
+test('M4: unknown objects are ignored, a burst is published once', async (t) => {
+  const ctx = await setup(t);
+  await up(ctx);
+  const posts = () =>
+    ctx.gladys.fake.requests.filter((r) => r.method === 'POST' && /state/.test(r.path)).length;
+  const before = posts();
+  for (let i = 0; i < 40; i += 1) ctx.panel.push(`ZSTT1=${i % 2 ? 'O' : '-'}-------`);
+  ctx.panel.push('ZSTT44=O-------');
+  ctx.panel.push('PSTT9=A-E-----');
+  await settle(40);
+  assert.ok(posts() - before <= 2, `${posts() - before} publications for the burst`);
+  assert.equal(ctx.app.model.zones.has(44), false);
+  assert.equal(ctx.app.model.partitions.has(9), false);
+});
+
+test('M10: a Gladys command credits one transition only', async (t) => {
+  const ctx = await setup(t);
+  await up(ctx);
+  await ctx.press(ctx.partition(1), 'arm-away');
+  await settle();
+  assert.equal(ctx.events().at(-1).data.by_gladys, true);
+  ctx.panel.push('PSTT1=--E-R---');
+  ctx.panel.push('PSTT1=A-E-----');
+  await settle();
+  assert.deepEqual(ctx.events().at(-1).data, {
+    partition: '1',
+    mode: 'armed_away',
+    by_gladys: false,
+  });
+});
+
+test('M9: overlapping starts leave one sweeper', async (t) => {
+  const active = new Set();
+  const timers = {
+    setTimeout: (...a) => setTimeout(...a),
+    clearTimeout: (x) => clearTimeout(x),
+    setInterval: (fn, ms) => {
+      const id = setInterval(fn, ms);
+      if (ms === TIMINGS.sweep) active.add(id);
+      return id;
+    },
+    clearInterval: (id) => {
+      active.delete(id);
+      clearInterval(id);
+    },
+  };
+  const gladys = createFakeGladys({ config: BASE });
+  const panel = new FakeRisco();
+  const app = new RiscoApp({
+    gladys,
+    logger: quietLogger(),
+    connect: panel.connect,
+    store: memoryStore(),
+    timers,
+  });
+  t.after(() => app.stop({ final: true }));
+  await Promise.all([
+    app.start(BASE),
+    app.start({ ...BASE, access_code: '1234' }),
+    app.start(BASE),
+  ]);
+  assert.equal(active.size, 1);
+  app.stop({ final: true });
+  assert.equal(active.size, 0);
 });

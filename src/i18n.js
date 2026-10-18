@@ -91,8 +91,8 @@ export const T = {
       `Centrale Risco injoignable (${reason}), nouvel essai dans ${seconds} s.`,
   },
   refused: {
-    en: 'The panel refused the access code: connection stopped, no new try. Fix the code, then save, or click "Test the connection".',
-    fr: "La centrale a refusé le code d'accès : connexion arrêtée, sans nouvel essai. Corrigez le code puis enregistrez, ou cliquez sur « Tester la connexion ».",
+    en: 'The panel refused the access code, or closed the connection while checking it: connection stopped, no new try. Fix the code, then save, or click "Test the connection".',
+    fr: "La centrale a refusé le code d'accès, ou a coupé la connexion pendant sa vérification : connexion arrêtée, sans nouvel essai. Corrigez le code puis enregistrez, ou cliquez sur « Tester la connexion ».",
   },
   unsupported: {
     en: 'This Risco panel type is not supported (see the documentation): connection stopped.',
@@ -161,6 +161,10 @@ export const T = {
   stillConnecting: {
     en: 'The panel is still being read (zones and partitions); try again in a moment.',
     fr: 'La centrale est encore en cours de lecture (zones et partitions) ; réessayez dans un instant.',
+  },
+  discovering: {
+    en: (zone, of) => `Discovery in progress (zone ${zone}/${of}); try again in a moment.`,
+    fr: (zone, of) => `Découverte en cours (zone ${zone}/${of}) ; réessayez dans un instant.`,
   },
 };
 

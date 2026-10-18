@@ -47,42 +47,67 @@ sont en lecture seule, les commandes sont des boutons.
 3. **Code d'accès de la centrale** : le code d'accès à distance (5678 par
    défaut), pas un code utilisateur du clavier. C'est un champ secret : il est
    gardé par Gladys dans sa base, jamais réaffiché dans l'interface, et envoyé
-   seulement à la centrale. Il n'apparaît jamais dans les journaux.
-4. **Type des zones** (facultatif) : par exemple `2:motion, 5:smoke,
-7-9:motion`. Types : `opening` (ouverture, par défaut), `motion`
-   (mouvement), `smoke` (fumée), `leak` (fuite d'eau).
+   seulement à la centrale. Il n'apparaît jamais dans les journaux. Voir
+   aussi « Le code d'accès » plus bas.
+4. **Type des zones** (facultatif), par exemple :
+   `2:motion, 5:smoke, 7-9:motion`. Types : `opening` (ouverture, par
+   défaut), `motion` (mouvement), `smoke` (fumée), `leak` (fuite d'eau).
+   Changer le type d'une zone déjà créée dans Gladys ajoute une nouvelle
+   fonction et garde l'ancienne (et son historique) : supprimez l'ancienne à
+   la main si vous n'en voulez plus.
 5. **Sécurité** : voir plus bas.
 6. **Langue des noms** : français ou anglais.
 
-Le bouton **Tester la connexion** se connecte tout de suite et indique le
-modèle, l'état des partitions et le nombre de zones.
+Le bouton **Tester la connexion** se connecte tout de suite si aucune
+connexion n'est en cours, sinon il attend celle en cours (avec « découverte en
+cours (zone x/n) » si elle dure), et indique le modèle, l'état des partitions
+et le nombre de zones.
 
 La première connexion lit toutes les zones possibles de la centrale (50 pour
 une LightSYS, 512 pour une LightSYS+) : cela peut prendre de quelques
 secondes à une minute. Les appareils apparaissent ensuite dans l'onglet
-Découverte.
+Découverte. **Chaque reconnexion relit toutes les zones de la même façon, et
+les commandes sont refusées pendant ce temps** (« rien n'a été envoyé »).
+
+## Le code d'accès
+
+- **Le code d'accès suffit, seul, à désarmer** : la centrale ne demande aucun
+  code utilisateur pour les commandes reçues par le réseau.
+- Il circule sur votre réseau local seulement **brouillé, pas protégé** : le
+  brouillage se défait avec l'identifiant que la centrale donne à qui le
+  demande. Tout appareil de votre réseau qui écoute le trafic peut donc le
+  lire.
+- **Avec le code par défaut 5678, n'importe quel appareil de votre réseau
+  peut piloter la centrale**, désarmement compris, sans Gladys. Faites
+  changer ce code par votre installateur.
+- Protégez votre réseau (Wi-Fi invité séparé pour les appareils dont vous
+  n'êtes pas sûr).
 
 ## Sécurité
 
 - **Armer** est permis par défaut (option « Autoriser l'armement depuis
   Gladys »).
-- **Désarmer est désactivé par défaut.** La centrale ne demande pas de code
-  utilisateur pour désarmer : le code d'accès suffit. Ne l'autorisez que si
-  votre Gladys est bien protégé (comptes, accès à distance). Désarmer coupe
-  aussi une alarme en cours.
+- **Désarmer est désactivé par défaut.** Une fois l'option cochée, **tout
+  utilisateur de Gladys, toute scène et l'application mobile Gladys peuvent
+  désarmer, sans aucun code**. Ne l'autorisez que si votre Gladys est bien
+  protégé (comptes, accès à distance). Désarmer coupe aussi une alarme en
+  cours.
 - **Contourner une zone est désactivé par défaut** : une zone contournée ne
   déclenche plus l'alarme.
+- Les options sont relues juste avant chaque envoi : une option décochée
+  pendant qu'une commande attend son tour bloque cette commande.
 - Avant chaque commande, l'intégration **relit l'état sur la centrale** et
   décide sur cet état, jamais sur ce qu'elle a en mémoire. Les commandes
   passent une par une.
 - Une commande qui ne peut pas partir dans les temps (centrale lente, état
   illisible) est refusée avec « rien n'a été envoyé ». Une commande partie
-  sans réponse de la centrale est annoncée « envoyée, sans confirmation » et
-  l'état est relu deux secondes plus tard : elle n'est jamais annoncée « non
-  envoyée ».
-- Le contournement est une bascule sur la centrale : après un envoi, la zone
-  n'accepte pas d'autre contournement tant que la centrale n'a pas montré le
-  résultat (30 s au plus).
+  sans réponse claire de la centrale (pas de réponse, réponse inattendue ou
+  ambiguë) est annoncée « envoyée, sans confirmation » et l'état est relu
+  deux secondes plus tard : elle n'est jamais annoncée « non envoyée ». Seule
+  une réponse d'erreur de la centrale (N.., B..) est annoncée « refusée ».
+- Le contournement est une bascule sur la centrale : après un envoi (accepté
+  ou sans confirmation), la zone n'accepte pas d'autre contournement tant que
+  la centrale n'a pas montré le résultat (30 s au plus).
 - Chaque commande, envoyée ou refusée, est écrite dans les journaux de
   l'intégration.
 
@@ -93,8 +118,10 @@ Découverte.
   centrale ferme la connexion juste après chaque ouverture, l'intégration le
   signale et espace ses essais (5 minutes).
 - Sur une coupure, les nouveaux essais sont espacés : 10 s, 30 s, 1 min,
-  2 min, puis toutes les 5 minutes.
-- **Si la centrale refuse le code d'accès, l'intégration s'arrête** et ne
+  2 min, puis toutes les 5 minutes. Deux connexions sont toujours séparées
+  d'au moins 6 secondes (le temps que la centrale se réinitialise).
+- **Si la centrale refuse le code d'accès, ou coupe la connexion pendant la
+  vérification du code (deux fois de suite), l'intégration s'arrête** et ne
   réessaie pas toute seule, même après un redémarrage (un code faux essayé en
   boucle pourrait bloquer la centrale). Corrigez le code puis enregistrez, ou
   cliquez sur « Tester la connexion ». Le fichier `/data/risco-state.json`

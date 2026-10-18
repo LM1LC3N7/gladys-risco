@@ -44,7 +44,9 @@ Ported from its local part (`pyrisco/local/`):
   `RMT=<code>`), the command ids 1 to 49, the error answers without id (and
   the id taken again after one), the acknowledgement of the panel's own
   messages, the `CLOCK` keep-alive every 5 seconds, `DCN` at the end, the
-  pause the panel needs between two sessions.
+  pause the panel needs between two sessions (pyrisco sleeps 5 s after a
+  close; here no session opens sooner than 6 s after the last one closed,
+  on every path).
 - `risco_local.py`, `panels.py`, `partition.py`, `zone.py`, `system.py`, in
   `src/risco/client.js` and `src/risco/panel.js`: the discovery requests
   (`PNLCNF`, `FSVER?`, `PNLSERD`, `ZTYPE*`, `ZLNKTYP`, `ZSTT*`, `ZLBL*`,
@@ -58,4 +60,8 @@ CRC over the bytes received; any answer but ACK to the access code is a
 refusal that stops the logins (pyrisco reconnects after an error answer); a
 timeout during the discovery fails the session instead of dropping the
 object; reconnection with growing waits; a command never written after its
-deadline. The cloud part of pyrisco (`pyrisco/cloud/`) is not ported.
+deadline; `DCN` sent as soon as the access code was accepted (discovery
+included); an error answer without id after a timeout is ambiguous and the
+id is not taken back then; a command answered neither ACK nor an error is
+"sent, not confirmed" (pyrisco reads it as a failure). The cloud part of
+pyrisco (`pyrisco/cloud/`) is not ported.

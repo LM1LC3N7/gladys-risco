@@ -81,6 +81,8 @@ export class StatePublisher {
     this.retries = new Set();
     /** feature external id -> value key of the request on its way to Gladys. */
     this.inflight = new Map();
+    /** Ids forgotten while their value was on its way: not remembered after it lands. */
+    this.forgotten = new Set();
   }
 
   heartbeat(id) {
@@ -120,12 +122,17 @@ export class StatePublisher {
 
   /** Gladys lost these values (a device created or updated, a reconnection): send them again. */
   forget(externalId) {
+    const matches = (id) =>
+      externalId === undefined || id === externalId || id.startsWith(`${externalId}:`);
+    // A value on its way may land after the device was created or Gladys
+    // restarted: it must not count as known (as publishChangedStates of the SDK).
+    for (const id of this.inflight.keys()) if (matches(id)) this.forgotten.add(id);
     if (externalId === undefined) {
       this.last.clear();
       return;
     }
     for (const id of this.last.keys()) {
-      if (id === externalId || id.startsWith(`${externalId}:`)) this.last.delete(id);
+      if (matches(id)) this.last.delete(id);
     }
   }
 
@@ -158,11 +165,16 @@ export class StatePublisher {
         await this.gladys.publishStates(part);
         const at = this.now();
         for (const state of part) {
-          this.last.set(state.device_feature_external_id, { key: valueKey(state), at });
-          this.inflight.delete(state.device_feature_external_id);
+          const id = state.device_feature_external_id;
+          if (this.forgotten.delete(id)) this.last.delete(id);
+          else this.last.set(id, { key: valueKey(state), at });
+          this.inflight.delete(id);
         }
       } catch (err) {
-        for (const state of part) this.inflight.delete(state.device_feature_external_id);
+        for (const state of part) {
+          this.inflight.delete(state.device_feature_external_id);
+          this.forgotten.delete(state.device_feature_external_id);
+        }
         this.logger.warn(`Publishing the states failed: ${err.message}`);
         // Kept for the next try, unless a newer value arrived meanwhile.
         for (const state of part) {

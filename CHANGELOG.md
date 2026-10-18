@@ -35,4 +35,31 @@ the notes of the version's GitHub Release.
 - State and scene event budgets under the Gladys limits.
 - French and English names, messages and guides.
 
+### Security
+
+- The arming, disarming and bypass options are read again right before each
+  send: one switched off while a command waits stops it, nothing sent.
+- Only an error answer (N.., B..) of the panel counts as a refusal; any other
+  answer after a command is "sent, without confirmation" with its bypass
+  guard and a read back. An error answer without id after a timeout is
+  treated as ambiguous (sent), and the command id is then kept.
+- No new session sooner than 6 s after the last one closed; DCN sent as soon
+  as the access code is accepted; the session is cut on a write buffer over
+  64 KB; messages for unknown zones or partitions are ignored and bursts are
+  published once.
+- Docs and configuration: the access code alone disarms and travels only
+  scrambled on the local network; change the default 5678; once disarming is
+  allowed, any Gladys user, scene or the mobile app can disarm without a
+  code.
+
+### Fixed
+
+- "Test the connection" no longer opens a second session during the
+  discovery: it waits for it and tells its progress.
+- The status read before a command is withdrawn in time when the line is
+  busy, so the refusal arrives within Gladys' 5 s.
+- Scene actions without partition or mode are refused instead of guessed.
+- A Gladys command credits a single transition (`by_gladys`); two starts no
+  longer overlap; a state forgotten while being sent is sent again.
+
 [Unreleased]: https://github.com/LM1LC3N7/gladys-risco/commits/main

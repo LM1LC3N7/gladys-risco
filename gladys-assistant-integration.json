@@ -82,8 +82,8 @@
         "fr": "Code d’accès de la centrale"
       },
       "description": {
-        "en": "The remote access code of the panel (5678 unless your installer changed it), not a keypad user code. Kept by Gladys in its database, never shown again, sent only to the panel.",
-        "fr": "Le code d’accès à distance de la centrale (5678 sauf si votre installateur l’a changé), pas un code utilisateur du clavier. Gardé par Gladys dans sa base, jamais réaffiché, envoyé seulement à la centrale."
+        "en": "The remote access code of the panel (5678 unless your installer changed it), not a keypad user code. It alone lets any device of your network control the panel, disarming included: with 5678, have your installer change it. It travels on your network only scrambled, not protected. Kept by Gladys in its database, never shown again, sent only to the panel.",
+        "fr": "Le code d’accès à distance de la centrale (5678 sauf si votre installateur l’a changé), pas un code utilisateur du clavier. À lui seul, il permet à n’importe quel appareil de votre réseau de piloter la centrale, désarmement compris : avec 5678, faites-le changer par votre installateur. Il circule sur votre réseau seulement brouillé, pas protégé. Gardé par Gladys dans sa base, jamais réaffiché, envoyé seulement à la centrale."
       },
       "required": true
     },
@@ -134,8 +134,8 @@
         "fr": "Autoriser le désarmement depuis Gladys"
       },
       "description": {
-        "en": "Disarming also silences an alarm in progress. The panel does not ask for a user code: the access code is enough.",
-        "fr": "Désarmer coupe aussi une alarme en cours. La centrale ne demande pas de code utilisateur : le code d’accès suffit."
+        "en": "Once checked, every Gladys user, every scene and the Gladys mobile app can disarm, without any code: the panel asks for no user code, the access code is enough. Disarming also silences an alarm in progress.",
+        "fr": "Une fois cochée, tout utilisateur de Gladys, toute scène et l’application mobile Gladys peuvent désarmer, sans aucun code : la centrale ne demande pas de code utilisateur, le code d’accès suffit. Désarmer coupe aussi une alarme en cours."
       },
       "required": false,
       "default": false

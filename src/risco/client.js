@@ -37,7 +37,9 @@ const MAX_ID = 49;
 /**
  * kind: `offline` (nothing sent), `late` (withdrawn or too late, nothing
  * sent), `timeout` (sent, no answer), `lost` (the session ended while it
- * waited), `panel` (the panel answered an error),
+ * waited), `panel` (the panel answered an error, N.. or B..), `unexpected`
+ * (an answer that is neither ACK nor an error), `ambiguous` (an error answer
+ * without id while an earlier request timed out: it may belong to either),
  * `crc` (an answer came back damaged). `sent` tells whether the request may
  * have reached the panel.
  */
@@ -54,13 +56,16 @@ export class RiscoError extends Error {
 export function valueOf(reply) {
   const text = String(reply ?? '');
   const at = text.indexOf('=');
-  if (at < 0) throw new RiscoError('Unexpected answer from the panel', 'panel', { sent: true });
+  if (at < 0) {
+    throw new RiscoError('Unexpected answer from the panel', 'unexpected', { sent: true });
+  }
   return text.slice(at + 1);
 }
 
 /** Errors that only mean "this object does not exist" during the discovery. */
 const skippable = (err) =>
-  err instanceof RiscoError && (err.kind === 'panel' || err.kind === 'crc');
+  err instanceof RiscoError &&
+  (err.kind === 'panel' || err.kind === 'crc' || err.kind === 'unexpected');
 
 export class RiscoClient extends EventEmitter {
   constructor({
@@ -84,6 +89,10 @@ export class RiscoClient extends EventEmitter {
     this.shortSessions = 0;
     this.loginDrops = 0;
     this.inLogin = false;
+    this.loggedIn = false;
+    this.uncertain = false;
+    this.closedAt = undefined;
+    this.progress = undefined;
     this.queue = [];
     this.inflight = undefined;
     this.snapshot = undefined;
@@ -100,6 +109,11 @@ export class RiscoClient extends EventEmitter {
     return this.ready;
   }
 
+  /** A socket is open (connecting, logging in, discovering or up). */
+  get busy() {
+    return Boolean(this.socket);
+  }
+
   start() {
     this.stop();
     this.running = true;
@@ -108,7 +122,26 @@ export class RiscoClient extends EventEmitter {
     this.shortSessions = 0;
     this.loginDrops = 0;
     this.inLogin = false;
-    this.open();
+    this.openSoon(0);
+  }
+
+  /**
+   * Opens a session after `wait`, and never sooner than sessionGap after the
+   * last one closed: the panel needs a few seconds to reset its scrambling
+   * between two sessions (pyrisco's note), whatever the path (new address,
+   * new code, "Test the connection", a reconnection).
+   */
+  openSoon(wait) {
+    const gap = this.closedAt === undefined ? 0 : this.closedAt + TIMINGS.sessionGap - this.now();
+    const delay = Math.max(wait, gap, 0);
+    if (delay === 0) {
+      this.open();
+      return;
+    }
+    this.reconnectTimer = this.timers.setTimeout(() => {
+      this.reconnectTimer = undefined;
+      if (this.running) this.open();
+    }, delay);
   }
 
   stop() {
@@ -136,10 +169,12 @@ export class RiscoClient extends EventEmitter {
   close({ goodbye = false } = {}) {
     this.clearTimers();
     const socket = this.socket;
-    const wasReady = this.ready;
+    const loggedIn = this.loggedIn;
     this.socket = undefined;
     this.ready = false;
+    this.loggedIn = false;
     this.snapshot = undefined;
+    this.progress = undefined;
     const inflight = this.inflight;
     this.inflight = undefined;
     if (inflight) {
@@ -152,9 +187,11 @@ export class RiscoClient extends EventEmitter {
       entry.reject(new RiscoError('Not connected to the panel', 'offline'));
     }
     if (!socket) return;
+    this.closedAt = this.now();
     socket.removeAllListeners();
     socket.on('error', () => undefined);
-    if (goodbye && wasReady && this.codec) {
+    // Once logged in (discovery included), DCN frees the panel at once.
+    if (goodbye && loggedIn && this.codec) {
       // Frees the panel for the next client at once (pyrisco sends DCN too).
       try {
         socket.write(this.codec.encode(this.nextId(), 'DCN'));
@@ -184,6 +221,7 @@ export class RiscoClient extends EventEmitter {
     });
     this.lastId = MIN_ID - 1;
     this.timeouts = 0;
+    this.uncertain = false;
     this.logger.debug(`Connecting to the Risco panel at ${host}:${port}`);
     let socket;
     try {
@@ -249,12 +287,7 @@ export class RiscoClient extends EventEmitter {
       this.failures = wasUp ? 1 : this.failures + 1;
       retryIn = TIMINGS.backoff[Math.min(this.failures - 1, TIMINGS.backoff.length - 1)];
     }
-    if (retryIn !== undefined) {
-      this.reconnectTimer = this.timers.setTimeout(() => {
-        this.reconnectTimer = undefined;
-        if (this.running) this.open();
-      }, retryIn);
-    }
+    if (retryIn !== undefined) this.openSoon(retryIn);
     this.emit('down', {
       reason,
       retryIn,
@@ -293,6 +326,7 @@ export class RiscoClient extends EventEmitter {
         return;
       }
       this.loginDrops = 0;
+      this.loggedIn = true;
       this.logger.info('Risco: logged in');
       this.ticker = this.timers.setInterval(() => this.tick(generation), TIMINGS.keepAlive);
       const snapshot = await this.discover(generation);
@@ -327,7 +361,9 @@ export class RiscoClient extends EventEmitter {
     }
     // Messages of the panel that come during the discovery update what was read.
     this.snapshot = { panel: { ...caps, serial }, zones: {}, partitions: {}, system: undefined };
-    for (let id = 1; id <= Math.min(caps.zones, LIMITS.maxZones); id += 1) {
+    const zones = Math.min(caps.zones, LIMITS.maxZones);
+    for (let id = 1; id <= zones; id += 1) {
+      this.progress = { zone: id, of: zones };
       const zone = await this.discoverZone(id, legacy);
       if (zone && this.snapshot) this.snapshot.zones[id] = zone;
     }
@@ -410,6 +446,13 @@ export class RiscoClient extends EventEmitter {
     }
     const { id, text, crcOk } = decoded;
     if (id === null) {
+      if (this.uncertain) {
+        // A request timed out earlier: this error may answer it, or the one
+        // in flight. Nothing is known: the id is kept, the request in flight
+        // fails as "may have been sent".
+        this.ambiguous(text);
+        return;
+      }
       // An error answer without id: the panel did not take the id, the next
       // request uses it again (as pyrisco does).
       this.lastId = this.lastId <= MIN_ID ? MAX_ID : this.lastId - 1;
@@ -426,6 +469,7 @@ export class RiscoClient extends EventEmitter {
     } catch (err) {
       this.logger.warn(`Risco: acknowledging a message failed: ${err.message}`);
     }
+    if (this.overflowing(generation)) return;
     if (!crcOk) {
       this.logger.warn('Risco: a message of the panel had a wrong CRC, ignored');
       return;
@@ -442,6 +486,8 @@ export class RiscoClient extends EventEmitter {
     this.timers.clearTimeout(entry.timer);
     this.inflight = undefined;
     this.timeouts = 0;
+    // An answer with the id of the request: the line is in step again.
+    if (id !== undefined) this.uncertain = false;
     if (!crcOk) {
       entry.reject(new RiscoError('The answer of the panel was damaged', 'crc', { sent: true }));
     } else if (text[0] === 'N' || text[0] === 'B') {
@@ -454,6 +500,21 @@ export class RiscoClient extends EventEmitter {
     } else {
       entry.resolve(text);
     }
+    this.pump();
+  }
+
+  ambiguous(text) {
+    const entry = this.inflight;
+    this.logger.warn(`Risco: error ${text.slice(0, 8)} without id after a timeout: ambiguous`);
+    if (!entry) return;
+    this.timers.clearTimeout(entry.timer);
+    this.inflight = undefined;
+    entry.reject(
+      new RiscoError(`Ambiguous answer ${text.slice(0, 8)} to ${entry.label}`, 'ambiguous', {
+        sent: true,
+        code: text.slice(0, 8),
+      }),
+    );
     this.pump();
   }
 
@@ -552,10 +613,14 @@ export class RiscoClient extends EventEmitter {
       this.lost(generation, err.message);
       return;
     }
+    if (this.overflowing(generation)) return;
     entry.timer = this.timers.setTimeout(() => {
       if (this.inflight !== entry) return;
       this.inflight = undefined;
       this.timeouts += 1;
+      // A late answer may still come: until an answer with a known id, an
+      // error without id cannot be told apart.
+      this.uncertain = true;
       entry.reject(new RiscoError(`No answer to ${entry.label}`, 'timeout', { sent: true }));
       if (this.timeouts >= LIMITS.maxTimeouts) {
         this.lost(generation, 'no answer from the panel');
@@ -575,15 +640,27 @@ export class RiscoClient extends EventEmitter {
     return valueOf(await this.request(`ZSTT*${id}?`, options));
   }
 
-  /** A command the panel answers ACK; any other answer is an error, sent. */
+  /**
+   * A command the panel answers ACK. An error answer (N.., B..) rejects as
+   * `panel` (refused); any other answer as `unexpected`: it was sent, its
+   * effect is unknown.
+   */
   async command(text, options) {
     const answer = await this.request(text, options);
     if (answer !== 'ACK') {
-      throw new RiscoError(`The panel answered ${answer.slice(0, 8)}`, 'panel', {
+      throw new RiscoError(`Unexpected answer ${answer.slice(0, 8)}`, 'unexpected', {
         sent: true,
         code: answer.slice(0, 8),
       });
     }
+  }
+
+  /** A panel (or a peer) flooding us faster than the socket drains: cut. */
+  overflowing(generation) {
+    if ((this.socket?.writableLength ?? 0) <= LIMITS.maxPendingWrite) return false;
+    this.logger.warn('Risco: too much data waiting to be written, session cut');
+    this.lost(generation, 'write buffer full');
+    return true;
   }
 
   arm(id, options) {

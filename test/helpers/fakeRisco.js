@@ -117,6 +117,8 @@ export class FakeRisco {
     this.log = [];
     /** (text) -> true: that request gets no answer. */
     this.hold = () => false;
+    /** (text) -> a promise: that request is answered once it resolves. */
+    this.gate = () => undefined;
     /** (text) -> a reply, or undefined for the normal one. */
     this.reply = () => undefined;
     this.connect = this.connect.bind(this);
@@ -160,6 +162,15 @@ export class FakeRisco {
     if (id > 49) return; // the client's ACK of a message of ours
     this.log.push({ session: socket.session, text });
     if (this.hold(text)) return;
+    const gate = this.gate(text);
+    if (gate) {
+      gate.then(() => this.respond(socket, id, text));
+      return;
+    }
+    this.respond(socket, id, text);
+  }
+
+  respond(socket, id, text) {
     const custom = this.reply(text);
     if (custom !== undefined) {
       if (custom === null) return;

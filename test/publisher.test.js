@@ -199,3 +199,28 @@ test('a value is never dropped while another one of the feature is on its way', 
   );
   publisher.stop({ final: true });
 });
+
+test('M8: a value forgotten while on its way is sent again next time', async () => {
+  let release;
+  const sent = [];
+  let hang = true;
+  const gladys = {
+    publishStates: (batch) => {
+      sent.push(...batch);
+      if (hang) {
+        hang = false;
+        return new Promise((resolve) => (release = resolve));
+      }
+      return Promise.resolve({ success: true });
+    },
+  };
+  const publisher = new StatePublisher({ gladys, logger: quietLogger() });
+  const done = publisher.publish([mode('disarmed')]);
+  await settle();
+  publisher.forget('ext:t:partition:1'); // the user created the device meanwhile
+  release({ success: true });
+  await done;
+  await publisher.publish([mode('disarmed')]);
+  assert.equal(sent.length, 2, 'Gladys gets the value of the new device');
+  publisher.stop({ final: true });
+});

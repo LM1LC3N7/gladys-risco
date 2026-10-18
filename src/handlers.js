@@ -18,12 +18,14 @@ export function registerHandlers(gladys, app, logger) {
   gladys.onAction(ACTIONS.TEST_CONNECTION, () => app.testConnection());
 
   // Scene actions.
+  // A missing partition or mode is refused, never guessed: Gladys sends the
+  // manifest defaults itself when the user left them.
   gladys.onSceneAction(SCENE_ACTIONS.ARM, async (fields) => {
-    await app.arm(fields.partition ?? '1', fields.mode ?? 'armed_away');
+    await app.arm(fields?.partition, fields?.mode);
     return undefined;
   });
   gladys.onSceneAction(SCENE_ACTIONS.DISARM, async (fields) => {
-    await app.disarm(fields.partition ?? '1');
+    await app.disarm(fields?.partition);
     return undefined;
   });
 

@@ -196,3 +196,68 @@ test('stop sends DCN and frees the panel', async (t) => {
   assert.equal(panel.requests.at(-1), 'DCN');
   assert.equal(socket.ended, true);
 });
+
+const errorWithoutId = (code) => {
+  const body = Buffer.from(`${code}\x17`);
+  return Buffer.concat([Buffer.from([2]), body, Buffer.from(crc(body)), Buffer.from([3])]);
+};
+
+test('I2: PSTT times out, DISARM is written, a late N05 comes: ambiguous, id kept', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
+  const { panel, client, ups } = setup(t);
+  client.start();
+  await until(() => ups.length === 1);
+  panel.hold = (text) => text === 'PSTT1?' || text === 'DISARM=1';
+  const read = client.readPartition(1).catch((err) => err);
+  await settle();
+  t.mock.timers.tick(TIMINGS.requestTimeout);
+  assert.equal((await read).kind, 'timeout');
+  const disarm = client.disarm(1).catch((err) => err);
+  await until(() => panel.requests.includes('DISARM=1'));
+  const before = client.lastId;
+  panel.current.raw(errorWithoutId('N05'));
+  const err = await disarm;
+  assert.equal(err.kind, 'ambiguous');
+  assert.equal(err.sent, true);
+  assert.equal(client.lastId, before, 'the id is never taken back on an ambiguous error');
+  // An answer with its id puts the line back in step.
+  panel.hold = () => false;
+  await client.readPartition(2);
+  assert.equal(client.uncertain, false);
+});
+
+test('M1: never a new session sooner than 6 s after the last one closed', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
+  const { panel, client, ups } = setup(t);
+  client.start();
+  await until(() => ups.length === 1);
+  client.start(); // a new code, "Test the connection"…
+  await settle();
+  assert.equal(panel.sockets.length, 1);
+  t.mock.timers.tick(TIMINGS.sessionGap - 1);
+  await settle();
+  assert.equal(panel.sockets.length, 1);
+  t.mock.timers.tick(1);
+  await until(() => ups.length === 2);
+  assert.equal(panel.sockets.length, 2);
+});
+
+test('M4: a write buffer over 64 KB cuts the session', async (t) => {
+  const { panel, client, ups, downs } = setup(t);
+  client.start();
+  await until(() => ups.length === 1);
+  panel.current.writableLength = LIMITS.maxPendingWrite + 1;
+  panel.push('ZSTT1=O-------');
+  await until(() => downs.length === 1);
+  assert.equal(downs[0].reason, 'write buffer full');
+});
+
+test('M5: DCN is sent once logged in, even during the discovery', async (t) => {
+  const { panel, client } = setup(t);
+  panel.gate = (text) => (text === 'ZTYPE*3?' ? new Promise(() => undefined) : undefined);
+  client.start();
+  await until(() => panel.requests.includes('ZTYPE*3?'));
+  client.stop();
+  await settle();
+  assert.equal(panel.requests.at(-1), 'DCN');
+});

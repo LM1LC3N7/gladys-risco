@@ -25,6 +25,8 @@ up to date at the end of every milestone.
       `disarmed`; scene actions `arm`, `disarm`; "Test the connection";
       fr/en. Tested against an in-memory panel only (frames checked byte for
       byte against pyrisco's own encoder).
+- [x] **Review fixes** (2026-10-18, extra review of fef05c2: 1 blocking, 5
+      important, 12 minor): see "Decisions after the review" below.
 - [ ] **Milestone 2 - real panel**: run against a real LightSYS and an
       Agility / WiComm; capture real frames (anonymised) as fixtures; fix
       what differs (see below).
@@ -122,3 +124,56 @@ up to date at the end of every milestone.
   `smoke-sensor`, `leak-sensor`), no unit at all.
 - **Not checked**: Docker is not installed on this PC, so no image build and
   no end-to-end test in a container; never run against a real panel.
+
+## Decisions after the review (2026-10-18)
+
+- **B1 - options read again before every send**: `allow_arm`,
+  `allow_disarm`, `allow_bypass` are checked when the command is asked, again
+  inside the queue after the fresh read, and once more in `send()` right
+  before the request is queued. Switched off meanwhile: refused, "nothing was
+  sent".
+- **I1 - only N.. / B.. is a refusal**: any other answer to `ARM`, `STAY`,
+  `DISARM`, `ZBYPAS` (an echo, garbage) is `unexpected`: "sent, without
+  confirmation", `onSent()` (bypass guard, Gladys credit) and a read back.
+- **I2 - uncertain line**: every request timeout sets a flag, lowered by the
+  first answer whose id matches the request in flight. While it is up, an
+  error answer without id is `ambiguous` (`sent: true`): a command is "sent,
+  without confirmation" with its guard, a read is "state unreadable"; the id
+  is never taken back then (pyrisco's decrement only when in step).
+- **I3 - "Test the connection"** starts a session only when no socket is open
+  (stopped, or waiting for the next try); otherwise it waits for the session
+  in progress and, on its 25 s limit, answers "discovery in progress (zone
+  x/n)".
+- **I4 - docs and manifest**: the access code alone disarms; it travels only
+  scrambled (not protected) on the local network, readable by any device of
+  it; with 5678 any device of the network can drive the panel (have the
+  installer change it); once disarming is allowed, every Gladys user, scene
+  and the mobile app can disarm without any code.
+- **M1 - session gap**: the client keeps `closedAt`; no session opens before
+  `closedAt + 6 s`, on every path (`start()` for a new address/port/code or
+  the button, and the reconnections).
+- **M2 - fresh read deadline**: the read before a command carries a ticket;
+  a timer withdraws it at `sendBy` (3.5 s) if it is still waiting for the
+  line, so the refusal comes within Gladys' 5 s.
+- **M3 - scene actions**: a missing partition or mode is refused, never
+  replaced by a default (Gladys sends the manifest defaults itself).
+- **M4 - flood**: messages for zones or partitions not found at the discovery
+  are dropped before anything else; the model changes at once but the
+  publication, scene events and status come once per event loop turn; the
+  session is cut when more than 64 KB wait in the socket write buffer.
+- **M5 - DCN** is sent as soon as `RMT` got ACK (discovery included), not only
+  once the session is up.
+- **M6 - wording**: "refused the access code, or closed the connection while
+  checking it".
+- **M7 - docs**: each reconnection reads all the zones again; commands are
+  refused meanwhile.
+- **M8 - publisher**: a feature forgotten while its value is on its way is
+  not remembered when the value lands (as the SDK's publishChangedStates).
+- **M9 - starts never overlap**: `start()` runs one at a time; the sweeper
+  interval is cleared before it is set again.
+- **M10 - by_gladys**: a Gladys command credits only the first matching
+  transition; its entry is deleted then.
+- **M11 - CRC**: the whole table is compared with pyrisco's base64 one; the
+  notice describes the 6 s gap and the other changes.
+- **M12 - docs**: changing the kind of a created zone adds a feature and keeps
+  the old one (and its history).

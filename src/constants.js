@@ -59,6 +59,8 @@ export const LIMITS = {
   shortSessions: 3,
   /** Sessions closed by the panel while it checked the access code, in a row: a refusal. */
   loginDrops: 2,
+  /** Bytes waiting in the socket write buffer before the session is cut (a flood). */
+  maxPendingWrite: 64 * 1024,
 };
 
 export const TIMINGS = {
@@ -76,6 +78,8 @@ export const TIMINGS = {
    * session (pyrisco's note), else the next session starts encrypted.
    */
   backoff: [10_000, 30_000, 60_000, 120_000, 300_000],
+  /** Never a new session sooner than this after the last one closed, on every path. */
+  sessionGap: 6_000,
   /** The wait after several short sessions in a row (another client kicks us out). */
   contendedRetry: 5 * 60_000,
   /** A session that ends this soon after its start counts as short. */
