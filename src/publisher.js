@@ -166,8 +166,13 @@ export class StatePublisher {
         const at = this.now();
         for (const state of part) {
           const id = state.device_feature_external_id;
-          if (this.forgotten.delete(id)) this.last.delete(id);
-          else this.last.set(id, { key: valueKey(state), at });
+          if (this.forgotten.delete(id)) {
+            // Gladys lost it meanwhile (device created, reconnection): queued again.
+            this.last.delete(id);
+            if (!this.pending.has(id)) this.pending.set(id, state);
+          } else {
+            this.last.set(id, { key: valueKey(state), at });
+          }
           this.inflight.delete(id);
         }
       } catch (err) {

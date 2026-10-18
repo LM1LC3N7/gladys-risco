@@ -546,3 +546,77 @@ test('M9: overlapping starts leave one sweeper', async (t) => {
   app.stop({ final: true });
   assert.equal(active.size, 0);
 });
+
+test('R13: the model follows the client in emission order, Gladys queue busy or not', async (t) => {
+  const { EventEmitter } = await import('node:events');
+  class FakeClient extends EventEmitter {
+    constructor() {
+      super();
+      this.connected = false;
+      this.busy = false;
+    }
+    configure() {}
+    start() {}
+    stop() {}
+  }
+  const client = new FakeClient();
+  const gladys = createFakeGladys({ config: BASE });
+  const app = new RiscoApp({ gladys, logger: quietLogger(), client, store: memoryStore() });
+  registerHandlers(gladys, app, quietLogger());
+  await gladys.connect();
+  t.after(() => app.stop({ final: true }));
+  await settle();
+  // A first session, so that later transitions fire events.
+  const snapshot = (status) => ({
+    panel: { model: 'LightSYS', type: 'RP432', zones: 50, partitions: 4 },
+    zones: {},
+    partitions: { 1: { id: 1, status, label: 'Maison' } },
+    system: { label: 'x', status: '--------' },
+  });
+  client.emit('up', { snapshot: snapshot('--E-R---') });
+  await settle();
+  // Gladys' queue is busy (a slow publication)…
+  let release;
+  app.guard(() => new Promise((resolve) => (release = resolve)));
+  await settle();
+  assert.equal(typeof release, 'function', 'the queue is busy');
+  // …while the session drops, comes back, and the panel says "armed stay".
+  client.emit('down', { reason: 'x', retryIn: 10_000 });
+  client.emit('up', { snapshot: snapshot('--E-R---') });
+  client.emit('partition', { id: 1, status: 'H-E-----' });
+  client.emit('partition', { id: 1, status: '--E-R---' });
+  client.emit('partition', { id: 1, status: 'A-E-----' });
+  assert.equal(app.model.partitions.get(1).status, 'A-E-----', 'applied at once, in order');
+  assert.equal(app.online, true);
+  release();
+  await settle(40);
+  assert.equal(app.model.partitions.get(1).status, 'A-E-----', 'never overwritten by the up');
+  assert.deepEqual(
+    gladys.fake.sceneEvents.map((e) => [e.key, e.data.mode]),
+    [
+      ['armed', 'armed_stay'],
+      ['disarmed', undefined],
+      ['armed', 'armed_away'],
+    ],
+  );
+  assert.equal(
+    gladys.fake.lastState(gladys.externalIds('partition', '1').feature('mode')),
+    'Armed (away)',
+  );
+});
+
+test('R13: a status read is applied at its answer, before a later panel message', async (t) => {
+  const ctx = await setup(t);
+  await up(ctx);
+  ctx.panel.reply = (text, id) => {
+    if (text !== 'PSTT1?') return undefined;
+    // The panel answers the read (still disarmed), then reports the keypad arming.
+    ctx.panel.current.send(id, 'PSTT1=--E-R---');
+    ctx.panel.push('PSTT1=H-E-----');
+    return null;
+  };
+  await ctx.app.client.readPartition(1);
+  await settle();
+  assert.equal(ctx.app.model.partitions.get(1).status, 'H-E-----');
+  assert.equal(ctx.state(ctx.partition(1).feature('mode')), 'Armed (stay)');
+});

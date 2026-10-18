@@ -171,7 +171,7 @@ export class FakeRisco {
   }
 
   respond(socket, id, text) {
-    const custom = this.reply(text);
+    const custom = this.reply(text, id);
     if (custom !== undefined) {
       if (custom === null) return;
       socket.send(id, custom);

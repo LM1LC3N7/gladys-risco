@@ -261,3 +261,36 @@ test('M5: DCN is sent once logged in, even during the discovery', async (t) => {
   await settle();
   assert.equal(panel.requests.at(-1), 'DCN');
 });
+
+test('N1: a command whose check fails right before the write is withdrawn', async (t) => {
+  const { panel, client, ups } = setup(t);
+  client.start();
+  await until(() => ups.length === 1);
+  let allowed = true;
+  panel.gate = (text) =>
+    text === 'PSTT1?' ? Promise.resolve().then(() => (allowed = false)) : undefined;
+  const read = client.readPartition(1);
+  const disarm = client.disarm(1, { check: () => allowed }).catch((err) => err);
+  await read;
+  const err = await disarm;
+  assert.equal(err.kind, 'withdrawn');
+  assert.equal(err.sent, false);
+  assert.ok(!panel.commands.includes('DISARM=1'));
+});
+
+test('N2: a damaged or unexpected discovery answer is asked again, never "no zone"', async (t) => {
+  const once = setup(t);
+  let bad = 1;
+  once.panel.reply = (text) => (text === 'ZLBL*2?' && bad-- > 0 ? 'garbage' : undefined);
+  once.client.start();
+  await until(() => once.ups.length === 1);
+  assert.ok(once.ups[0].snapshot.zones[2], 'asked again, zone 2 kept');
+  assert.equal(once.panel.requests.filter((r) => r === 'ZLBL*2?').length, 2);
+
+  const twice = setup(t);
+  twice.panel.reply = (text) => (text === 'ZLBL*2?' ? 'garbage' : undefined);
+  twice.client.start();
+  await until(() => twice.downs.length === 1);
+  assert.equal(twice.ups.length, 0, 'the session fails, no partial list');
+  assert.match(twice.downs[0].reason, /no clear answer to ZLBL\*2\?/);
+});

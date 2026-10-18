@@ -177,3 +177,22 @@ up to date at the end of every milestone.
   notice describes the 6 s gap and the other changes.
 - **M12 - docs**: changing the kind of a created zone adds a feature and keeps
   the old one (and its history).
+
+## Decisions after the approval round 1 (2026-10-18)
+
+- **Model changes in emission order (regression of M4)**: the client's
+  events change the model when they are emitted, in their order: the
+  session up (model replaced, `applyUp`), the panel messages, the session
+  down (offline), and the status reads, which the client now emits itself as
+  `partition` / `zone` events at their answer (reads after the discovery
+  only). `guard()` only queues what talks to Gladys: publication, scene
+  events, status, transports. A message right after a new session can no
+  longer be overwritten by the older discovery snapshot (test R13).
+- **N1**: a command request carries a `check` of its option, called by
+  `pump()` right before the socket write; false: rejected `withdrawn`, never
+  written, refused with the option's message.
+- **N2**: during the discovery, only an error answer (N.., B..) means "no such
+  object". A damaged (`crc`) or unexpected answer is asked once more; a
+  second one fails the session like a timeout.
+- **N3**: a state forgotten while on its way is queued again when its request
+  lands (not only left out of `last`).

@@ -61,5 +61,12 @@ the notes of the version's GitHub Release.
 - Scene actions without partition or mode are refused instead of guessed.
 - A Gladys command credits a single transition (`by_gladys`); two starts no
   longer overlap; a state forgotten while being sent is sent again.
-
-[Unreleased]: https://github.com/LM1LC3N7/gladys-risco/commits/main
+- A panel message received right after a reconnection could be overwritten
+  by the older state read during the discovery (Gladys showed "Disarmed" on
+  an armed panel): every model change now applies in the order the panel
+  sent it, status reads included.
+- A command's option is checked one last time right before the socket write.
+- During the discovery, a damaged or unexpected answer is asked again, then
+  fails the session; it never hides a zone.
+- A state forgotten while being sent is queued again at once.
+  [Unreleased]: https://github.com/LM1LC3N7/gladys-risco/commits/main

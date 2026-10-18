@@ -37,7 +37,8 @@ const MAX_ID = 49;
 /**
  * kind: `offline` (nothing sent), `late` (withdrawn or too late, nothing
  * sent), `timeout` (sent, no answer), `lost` (the session ended while it
- * waited), `panel` (the panel answered an error, N.. or B..), `unexpected`
+ * waited), `withdrawn` (its option was switched off before the write,
+ * nothing sent), `panel` (the panel answered an error, N.. or B..), `unexpected`
  * (an answer that is neither ACK nor an error), `ambiguous` (an error answer
  * without id while an earlier request timed out: it may belong to either),
  * `crc` (an answer came back damaged). `sent` tells whether the request may
@@ -62,10 +63,15 @@ export function valueOf(reply) {
   return text.slice(at + 1);
 }
 
-/** Errors that only mean "this object does not exist" during the discovery. */
-const skippable = (err) =>
-  err instanceof RiscoError &&
-  (err.kind === 'panel' || err.kind === 'crc' || err.kind === 'unexpected');
+/**
+ * The only error that means "this object does not exist" during the
+ * discovery: an error answer of the panel (N.., B..). A damaged or
+ * unexpected answer is asked once more, then fails the session.
+ */
+const skippable = (err) => err instanceof RiscoError && err.kind === 'panel';
+
+const retryable = (err) =>
+  err instanceof RiscoError && (err.kind === 'crc' || err.kind === 'unexpected');
 
 export class RiscoClient extends EventEmitter {
   constructor({
@@ -342,10 +348,9 @@ export class RiscoClient extends EventEmitter {
   }
 
   async discover(generation) {
-    const internal = { internal: true };
-    const type = valueOf(await this.request('PNLCNF', internal)).trim();
+    const type = (await this.ask('PNLCNF')).trim();
     const legacy = isLegacy(type);
-    const firmware = legacy ? '' : valueOf(await this.request('FSVER?', internal)).trim();
+    const firmware = legacy ? '' : (await this.ask('FSVER?')).trim();
     const caps = capabilities(type, firmware);
     if (!caps) {
       this.logger.error(`Risco: panel type ${type.slice(0, 20)} is not supported`);
@@ -355,7 +360,7 @@ export class RiscoClient extends EventEmitter {
     this.logger.info(`Risco: ${caps.model} panel (${caps.type}), firmware ${firmware || '?'}`);
     let serial = '';
     try {
-      serial = valueOf(await this.request('PNLSERD', internal)).trim();
+      serial = (await this.ask('PNLSERD')).trim();
     } catch (err) {
       if (!skippable(err)) throw err;
     }
@@ -372,8 +377,8 @@ export class RiscoClient extends EventEmitter {
       if (partition && this.snapshot) this.snapshot.partitions[id] = partition;
     }
     try {
-      const label = valueOf(await this.request('SYSLBL?', internal)).trim();
-      const status = valueOf(await this.request('SSTT?', internal));
+      const label = (await this.ask('SYSLBL?')).trim();
+      const status = await this.ask('SSTT?');
       if (this.snapshot) this.snapshot.system = { label, status };
     } catch (err) {
       if (!skippable(err)) throw err;
@@ -381,20 +386,40 @@ export class RiscoClient extends EventEmitter {
     return this.snapshot;
   }
 
-  async discoverZone(id, legacy) {
-    const internal = { internal: true };
+  /** A discovery request: its value; a damaged or unexpected answer is asked once more. */
+  async ask(command) {
     try {
-      const type = Number.parseInt(valueOf(await this.request(`ZTYPE*${id}?`, internal)), 10);
+      return valueOf(await this.request(command, { internal: true }));
+    } catch (err) {
+      if (!retryable(err)) throw err;
+      this.logger.debug(`Risco: ${command} answered badly, asked again`);
+      try {
+        return valueOf(await this.request(command, { internal: true }));
+      } catch (again) {
+        // Never read as "no such object": the session fails, as on a timeout.
+        if (retryable(again)) {
+          throw new Error(`Risco: no clear answer to ${command} during the discovery`, {
+            cause: again,
+          });
+        }
+        throw again;
+      }
+    }
+  }
+
+  async discoverZone(id, legacy) {
+    try {
+      const type = Number.parseInt(await this.ask(`ZTYPE*${id}?`), 10);
       if (!type) return undefined;
       let tech = '';
       if (!legacy) {
-        tech = valueOf(await this.request(`ZLNKTYP${id}?`, internal)).trim();
+        tech = (await this.ask(`ZLNKTYP${id}?`)).trim();
         if (tech === 'N') return undefined;
       }
-      const status = valueOf(await this.request(`ZSTT*${id}?`, internal));
+      const status = await this.ask(`ZSTT*${id}?`);
       if (!zoneStatus(status).used) return undefined;
-      const label = valueOf(await this.request(`ZLBL*${id}?`, internal)).trim();
-      const partitions = zonePartitions(valueOf(await this.request(`ZPART&*${id}?`, internal)));
+      const label = (await this.ask(`ZLBL*${id}?`)).trim();
+      const partitions = zonePartitions(await this.ask(`ZPART&*${id}?`));
       return { id, type, tech, status, label, partitions };
     } catch (err) {
       if (skippable(err)) return undefined;
@@ -403,11 +428,10 @@ export class RiscoClient extends EventEmitter {
   }
 
   async discoverPartition(id) {
-    const internal = { internal: true };
     try {
-      const status = valueOf(await this.request(`PSTT${id}?`, internal));
+      const status = await this.ask(`PSTT${id}?`);
       if (!status.includes('E')) return undefined;
-      const label = valueOf(await this.request(`PLBL${id}?`, internal)).trim();
+      const label = (await this.ask(`PLBL${id}?`)).trim();
       return { id, status, label };
     } catch (err) {
       if (skippable(err)) return undefined;
@@ -498,9 +522,24 @@ export class RiscoClient extends EventEmitter {
         }),
       );
     } else {
+      this.reportRead(entry.command, text);
       entry.resolve(text);
     }
     this.pump();
+  }
+
+  /**
+   * A status read once up is reported like the panel's own messages, right
+   * at its answer: the model sees reads and messages in the order they came.
+   */
+  reportRead(command, text) {
+    if (!this.ready) return;
+    const match = /^(PSTT|ZSTT\*)(\d+)\?$/.exec(command);
+    const at = text.indexOf('=');
+    if (!match || at < 0) return;
+    const id = Number(match[2]);
+    const status = text.slice(at + 1);
+    this.emit(match[1] === 'PSTT' ? 'partition' : 'zone', { id, status });
   }
 
   ambiguous(text) {
@@ -560,6 +599,7 @@ export class RiscoClient extends EventEmitter {
       internal = false,
       sendBy,
       ticket = {},
+      check,
     } = {},
   ) {
     return new Promise((resolve, reject) => {
@@ -569,7 +609,17 @@ export class RiscoClient extends EventEmitter {
         reject(new RiscoError('Not connected to the panel', 'offline'));
         return;
       }
-      const entry = { command, label, timeout, sendBy, ticket, resolve, reject, written: false };
+      const entry = {
+        command,
+        label,
+        timeout,
+        sendBy,
+        ticket,
+        check,
+        resolve,
+        reject,
+        written: false,
+      };
       ticket.cancel = () => {
         const at = this.queue.indexOf(entry);
         if (at < 0) return false;
@@ -594,6 +644,13 @@ export class RiscoClient extends EventEmitter {
     if (this.inflight || this.queue.length === 0 || !this.socket) return;
     const entry = this.queue.shift();
     const generation = this.generation;
+    // Last look before the socket: a command whose option was switched off
+    // while it waited is withdrawn, never written.
+    if (entry.check && !entry.check()) {
+      entry.reject(new RiscoError(`${entry.label} withdrawn: not allowed any more`, 'withdrawn'));
+      this.pump();
+      return;
+    }
     let bytes;
     try {
       entry.id = this.nextId();

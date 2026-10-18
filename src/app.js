@@ -30,6 +30,13 @@ import { fileStore, normalizeMemory } from './store.js';
 /** A command refused before anything was sent to the panel. */
 export class Refused extends Error {}
 
+/** Command -> [config flag, refusal message, log name]. */
+const OPTIONS = {
+  arm: ['allowArm', T.armRefused, 'Arm'],
+  disarm: ['allowDisarm', T.disarmRefused, 'Disarm'],
+  bypass: ['allowBypass', T.bypassRefused, 'Bypass'],
+};
+
 const emptyModel = () => ({
   panel: undefined,
   partitions: new Map(),
@@ -73,8 +80,18 @@ export class RiscoApp {
     this.starting = Promise.resolve();
     this.pendingEvents = [];
     this.flushScheduled = false;
-    this.client.on('up', (info) => this.guard(() => this.onUp(info)));
-    this.client.on('down', (info) => this.guard(() => this.onDown(info)));
+    // Every model change is applied when the client emits it, in the order of
+    // emission (session up, messages, read results, session down); guard()
+    // only queues what talks to Gladys (publication, scene events, status).
+    this.client.on('up', (info) => {
+      const events = this.applyUp(info);
+      this.guard(() => this.onUp(events));
+    });
+    this.client.on('down', (info) => {
+      const wasOnline = this.online;
+      this.online = false;
+      this.guard(() => this.onDown(info, wasOnline));
+    });
     this.client.on('partition', ({ id, status }) =>
       this.noteChange(() => this.applyPartition(id, status)),
     );
@@ -271,7 +288,8 @@ export class RiscoApp {
 
   // --- Client events ---------------------------------------------------------
 
-  async onUp({ snapshot }) {
+  /** The model of a new session, applied at once: the events it means. */
+  applyUp({ snapshot }) {
     const events = [];
     this.model.panel = snapshot.panel;
     const partitions = new Map();
@@ -288,6 +306,11 @@ export class RiscoApp {
     for (const [id, zone] of zones) this.checkGuard(id, zone.status);
     this.model.system = snapshot.system;
     this.online = true;
+    return events;
+  }
+
+  /** Gladys side of a new session: devices, states, status, transports, events. */
+  async onUp(events) {
     await this.publishDevices();
     await this.publishStates();
     await this.setStatus(true, this.connectedMessage());
@@ -295,9 +318,8 @@ export class RiscoApp {
     for (const event of events) await this.effect(event);
   }
 
-  async onDown({ reason, retryIn, refused, unsupported, contended }) {
-    const wasOnline = this.online;
-    this.online = false;
+  /** Gladys side of a session lost (the model went offline when it was emitted). */
+  async onDown({ reason, retryIn, refused, unsupported, contended }, wasOnline) {
     const seconds = Math.round((retryIn ?? 0) / 1000);
     if (refused) {
       this.logger.error('Risco: access code refused, connection stopped (no new try)');
@@ -566,14 +588,14 @@ export class RiscoApp {
     }
   }
 
+  isAllowed(command) {
+    return Boolean(this.config[OPTIONS[command][0]]);
+  }
+
   /** The option of a command, read again now; refused (nothing sent) once switched off. */
   checkAllowed(command, what) {
-    const option = {
-      arm: ['allowArm', T.armRefused, 'Arm'],
-      disarm: ['allowDisarm', T.disarmRefused, 'Disarm'],
-      bypass: ['allowBypass', T.bypassRefused, 'Bypass'],
-    }[command];
-    if (this.config[option[0]]) return;
+    const option = OPTIONS[command];
+    if (this.isAllowed(command)) return;
     this.logger.warn(`${option[2]} REFUSED (${word(what, 'en')}): disabled in the configuration`);
     throw this.refused(option[1]);
   }
@@ -594,7 +616,12 @@ export class RiscoApp {
     // The configuration may have changed while the command waited its turn.
     this.checkAllowed(command, what);
     const ticket = {};
-    const request = run({ sendBy: asked + TIMINGS.sendBy, ticket });
+    // …and once more by the client, right before the socket write.
+    const request = run({
+      sendBy: asked + TIMINGS.sendBy,
+      ticket,
+      check: () => this.isAllowed(command),
+    });
     let timer;
     const late = new Promise((resolve) => {
       timer = this.timers.setTimeout(
@@ -608,6 +635,7 @@ export class RiscoApp {
     } catch (err) {
       if (err instanceof RiscoError && !err.sent) {
         this.logger.warn(`Command NOT sent (${label}): ${err.message}`);
+        if (err.kind === 'withdrawn') this.checkAllowed(command, what);
         throw this.refused(err.kind === 'late' ? T.tooLate : T.offline);
       }
       if (err instanceof RiscoError && err.kind === 'panel') {
@@ -650,18 +678,15 @@ export class RiscoApp {
     this.readBacks.add(timer);
   }
 
+  // The client emits every status it reads (as a 'partition' or 'zone'
+  // event, at the answer, in order with the panel's own messages): a read
+  // back only has to ask.
   readBackPartition(n) {
-    return async () => {
-      const status = await this.client.readPartition(n);
-      this.noteChange(() => this.applyPartition(n, status));
-    };
+    return () => this.client.readPartition(n);
   }
 
   readBackZone(n) {
-    return async () => {
-      const status = await this.client.readZone(n);
-      this.noteChange(() => this.applyZone(n, status));
-    };
+    return () => this.client.readZone(n);
   }
 
   async arm(rawPartition, mode, asked = this.now()) {
@@ -676,7 +701,6 @@ export class RiscoApp {
         asked,
         fill(T.unknownPartition, n),
       );
-      this.noteChange(() => this.applyPartition(n, raw));
       const status = partitionStatus(raw);
       if (!status.exists) throw this.refused(fill(T.unknownPartition, n));
       if (status.mode === mode) {
@@ -714,7 +738,6 @@ export class RiscoApp {
         asked,
         fill(T.unknownPartition, n),
       );
-      this.noteChange(() => this.applyPartition(n, raw));
       const status = partitionStatus(raw);
       if (!status.exists) throw this.refused(fill(T.unknownPartition, n));
       if (status.mode === 'disarmed' && !status.alarm) {
@@ -746,7 +769,6 @@ export class RiscoApp {
       const status = zoneStatus(raw);
       if (!status.used) throw this.refused(fill(T.unknownZone, n));
       this.checkGuard(n, raw);
-      this.noteChange(() => this.applyZone(n, raw));
       if (status.bypassed === wanted) {
         this.logger.info(`Zone ${n} already ${wanted ? 'bypassed' : 'not bypassed'}: nothing sent`);
         return;

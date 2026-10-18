@@ -200,7 +200,7 @@ test('a value is never dropped while another one of the feature is on its way', 
   publisher.stop({ final: true });
 });
 
-test('M8: a value forgotten while on its way is sent again next time', async () => {
+test('M8/N3: a value forgotten while on its way is queued again', async () => {
   let release;
   const sent = [];
   let hang = true;
@@ -220,7 +220,8 @@ test('M8: a value forgotten while on its way is sent again next time', async () 
   publisher.forget('ext:t:partition:1'); // the user created the device meanwhile
   release({ success: true });
   await done;
-  await publisher.publish([mode('disarmed')]);
+  assert.equal(publisher.pending.size, 1, 'queued again, without a new publish');
+  await publisher.flush();
   assert.equal(sent.length, 2, 'Gladys gets the value of the new device');
   publisher.stop({ final: true });
 });
