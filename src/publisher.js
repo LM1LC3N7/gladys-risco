@@ -62,6 +62,24 @@ function offset(id, spread) {
   return hash % spread;
 }
 
+/**
+ * The data of a scene event as the SDK takes it: publishSceneEvent refuses a
+ * key whose value is undefined (an unknown zone), a non-finite number or a
+ * nested object, which would lose the event after its retries. Such a value
+ * becomes null; strings, finite numbers, booleans and null are kept.
+ */
+const sceneValue = (value) => {
+  if (typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  return null;
+};
+
+export function sceneData(data) {
+  const out = {};
+  for (const [key, value] of Object.entries(data ?? {})) out[key] = sceneValue(value);
+  return out;
+}
+
 const valueKey = (state) => JSON.stringify([state.state ?? null, state.text ?? null]);
 
 export class StatePublisher {
@@ -201,7 +219,8 @@ export class StatePublisher {
     }, this.budget.wait || 1_000);
   }
 
-  async sceneEvent(key, data) {
+  async sceneEvent(key, rawData) {
+    const data = sceneData(rawData);
     const critical = key === SCENE_TRIGGERS.ALARM_TRIGGERED;
     if (!critical && this.events.left <= 0) {
       this.logger.warn(

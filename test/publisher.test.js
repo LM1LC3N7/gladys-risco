@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { LIMITS, TIMINGS } from '../src/constants.js';
-import { Budget, StatePublisher } from '../src/publisher.js';
+import { Budget, StatePublisher, sceneData } from '../src/publisher.js';
 import { quietLogger, settle } from './helpers/fakeRisco.js';
 
 const recorder = () => {
@@ -110,6 +110,48 @@ test('scene events over their budget are dropped, alarm_triggered never', async 
   assert.equal(logger.lines.filter((l) => /dropped/.test(l)).length, 3);
   await publisher.sceneEvent('alarm_triggered', {});
   assert.equal(events.at(-1), 'alarm_triggered');
+});
+
+test('scene event data: undefined becomes null for every event, other values kept', async () => {
+  const events = [];
+  const publisher = new StatePublisher({
+    gladys: { publishSceneEvent: async (key, data) => events.push({ key, data }) },
+    logger: quietLogger(),
+  });
+  await publisher.sceneEvent('alarm_triggered', { partition: '1', zone: undefined });
+  await publisher.sceneEvent('armed', { partition: '1', mode: undefined, by_gladys: false });
+  assert.deepEqual(events, [
+    { key: 'alarm_triggered', data: { partition: '1', zone: null } },
+    { key: 'armed', data: { partition: '1', mode: null, by_gladys: false } },
+  ]);
+  assert.deepEqual(
+    sceneData({
+      a: 0,
+      b: '',
+      c: false,
+      d: null,
+      e: undefined,
+      f: Number.NaN,
+      g: Infinity,
+      h: -Infinity,
+      i: { zone: 1 },
+      j: [1],
+      k: 12n,
+    }),
+    {
+      a: 0,
+      b: '',
+      c: false,
+      d: null,
+      e: null,
+      f: null,
+      g: null,
+      h: null,
+      i: null,
+      j: null,
+      k: null,
+    },
+  );
 });
 
 test('alarm_triggered refused by Gladys is tried again, three times in all', async (t) => {

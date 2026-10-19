@@ -123,6 +123,28 @@ test('panel messages become states and scene events', async (t) => {
   });
 });
 
+test('alarm_triggered reaches Gladys when the zone is unknown (zone: null)', async (t) => {
+  const ctx = await setup(t);
+  await up(ctx);
+  const { panel } = ctx;
+  // No zone of the partition in alarm (keypad or panel alarm).
+  panel.push('PSTT1=A-E-a---');
+  await settle();
+  assert.deepEqual(ctx.events().at(-1), {
+    key: 'alarm_triggered',
+    data: { partition: '1', zone: null },
+  });
+  // A zone in alarm the panel did not list: still sent, zone unknown.
+  panel.push('PSTT2=--E-----');
+  panel.push('ZSTT9=O------a');
+  panel.push('PSTT2=A-E-a---');
+  await settle();
+  assert.deepEqual(ctx.events().at(-1), {
+    key: 'alarm_triggered',
+    data: { partition: '2', zone: null },
+  });
+});
+
 test('arm away: decided on the status read now, sent once, credited to Gladys', async (t) => {
   const ctx = await setup(t);
   await up(ctx);

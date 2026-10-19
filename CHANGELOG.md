@@ -10,6 +10,13 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+### Fixed
+
+- Alarm scene trigger lost when the zone is unknown: the SDK refuses an
+  undefined value, so `alarm_triggered` now sends `zone: null`, and every
+  scene event turns an undefined, non-finite or non-primitive value into
+  null.
+
 ## [0.1.1] - 2026-10-18
 
 ### Added

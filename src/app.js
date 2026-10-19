@@ -450,7 +450,10 @@ export class RiscoApp {
     } else if (event.type === 'alarm') {
       const zone = this.zoneInAlarm(event.partition);
       this.logger.warn(`Panel: ALARM partition ${partition}${zone ? ` zone ${zone}` : ''}`);
-      await this.publisher.sceneEvent(SCENE_TRIGGERS.ALARM_TRIGGERED, { partition, zone });
+      await this.publisher.sceneEvent(SCENE_TRIGGERS.ALARM_TRIGGERED, {
+        partition,
+        zone: zone ?? null,
+      });
     }
   }
 
