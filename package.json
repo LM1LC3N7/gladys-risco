@@ -1,6 +1,6 @@
 {
   "name": "gladys-risco",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Gladys Assistant external integration for Risco alarm panels (LightSYS, Agility, WiComm, ProSYS Plus), locally over TCP. Unofficial, not affiliated with Risco Group.",
   "type": "module",
